@@ -165,20 +165,33 @@ public class SetupWindowController: NSWindowController {
                 return result
             }
 
-            // Always update the label, even if cancelled — otherwise
-            // "Fetching..." can be stuck forever when a previous task
-            // was cancelled by a newer fetchTask?.cancel() call.
             await MainActor.run {
-                if !Task.isCancelled {
-                    self.faviconData = data?.0
-                }
-                if self.customIconPath == nil {
-                    if !Task.isCancelled, let imgData = data?.0, let img = NSImage(data: imgData) {
-                        self.iconImageView.image = img
-                        self.iconLabel.stringValue = "Auto (favicon)"
-                    } else if self.iconLabel.stringValue == "Fetching..." {
+                // On cancellation: just ensure the label never stays at "Fetching..."
+                // regardless of whether a custom icon was chosen mid-flight.
+                guard !Task.isCancelled else {
+                    if self.iconLabel.stringValue == "Fetching..." {
                         self.iconImageView.image = self.defaultIcon()
                         self.iconLabel.stringValue = "No favicon found"
+                    }
+                    return
+                }
+
+                // Successful (or timed-out) fetch: always store the data and reset the label.
+                // Only update the image preview if no custom icon was chosen while we were fetching.
+                self.faviconData = data?.0
+                if self.iconLabel.stringValue == "Fetching..." {
+                    if self.customIconPath == nil {
+                        if let imgData = data?.0, let img = NSImage(data: imgData) {
+                            self.iconImageView.image = img
+                            self.iconLabel.stringValue = "Auto (favicon)"
+                        } else {
+                            self.iconImageView.image = self.defaultIcon()
+                            self.iconLabel.stringValue = "No favicon found"
+                        }
+                    } else {
+                        // A custom icon was chosen while fetching — the image is already
+                        // showing the user's file; just clear the "Fetching..." label.
+                        self.iconLabel.stringValue = self.customIconPath.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? "Custom icon"
                     }
                 }
             }
@@ -221,7 +234,7 @@ public class SetupWindowController: NSWindowController {
             return
         }
         iconLabel.stringValue = "Fetching..."
-        let url = raw.hasPrefix("http") ? raw : "https://" + raw
+        let url = raw.hasPrefix("http") ? raw : "https://" + url
         scheduleFaviconFetch(for: url, immediate: true)
     }
 
