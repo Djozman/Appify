@@ -5,15 +5,17 @@ public struct SetupResult {
     public let url: String
     public let name: String
     public let iconPath: String?
+    public let faviconData: Data?
     public let width: Int
     public let height: Int
     public let outputDir: String
     public let menuBar: Bool
     public var cancelled: Bool
 
-    public init(url: String, name: String, iconPath: String?, width: Int, height: Int,
-                outputDir: String, menuBar: Bool, cancelled: Bool = false) {
+    public init(url: String, name: String, iconPath: String?, faviconData: Data? = nil,
+                width: Int, height: Int, outputDir: String, menuBar: Bool, cancelled: Bool = false) {
         self.url = url; self.name = name; self.iconPath = iconPath
+        self.faviconData = faviconData
         self.width = width; self.height = height
         self.outputDir = outputDir; self.menuBar = menuBar; self.cancelled = cancelled
     }
@@ -139,7 +141,7 @@ public class SetupWindowController: NSWindowController {
     @discardableResult
     private func addLabel(_ text: String, x: CGFloat, y: CGFloat, w: CGFloat, to view: NSView) -> NSTextField {
         let lbl = NSTextField(labelWithString: text)
-        lbl.frame = NSRect(x: x, y: y, width: w, height: 18)
+        lbl.frame = NSRect(x: x, y: y, width: w, height: w == 120 ? 18 : 18)
         lbl.font = .systemFont(ofSize: 12, weight: .medium)
         view.addSubview(lbl)
         return lbl
@@ -151,27 +153,25 @@ public class SetupWindowController: NSWindowController {
         CFRunLoopWakeUp(rl)
     }
 
-    /// Composite favicon into a preview matching what IconConverter produces:
-    /// macOS-style grey card (white: 0.94), logo at 75% fill.
+    /// Composite favicon onto a macOS-style grey card — matches IconConverter.squarePadded exactly.
     private func makePreview(from data: Data) -> NSImage? {
         guard let src = NSImage(data: data) else { return nil }
         let size: CGFloat = 80
         let contentFraction: CGFloat = 0.75
-        let pad = size * (1.0 - contentFraction) / 2
-        let result = NSImage(size: NSSize(width: size, height: size))
-        result.lockFocus()
-        // Same grey as IconConverter.squarePadded
-        NSColor(white: 0.94, alpha: 1.0).setFill()
-        NSRect(x: 0, y: 0, width: size, height: size).fill()
         let rep = src.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
         let pw = rep.flatMap { $0.pixelsWide > 0 ? CGFloat($0.pixelsWide) : nil } ?? src.size.width
         let ph = rep.flatMap { $0.pixelsHigh > 0 ? CGFloat($0.pixelsHigh) : nil } ?? src.size.height
         let srcSize = CGSize(width: max(pw, 1), height: max(ph, 1))
-        let scale = min((size - pad * 2) / srcSize.width, (size - pad * 2) / srcSize.height)
+        let maxContent = size * contentFraction
+        let scale = min(maxContent / srcSize.width, maxContent / srcSize.height)
         let drawW = srcSize.width * scale
         let drawH = srcSize.height * scale
         let drawX = (size - drawW) / 2
         let drawY = (size - drawH) / 2
+        let result = NSImage(size: NSSize(width: size, height: size))
+        result.lockFocus()
+        NSColor(white: 0.94, alpha: 1.0).setFill()
+        NSRect(x: 0, y: 0, width: size, height: size).fill()
         src.draw(in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH),
                  from: NSRect(origin: .zero, size: srcSize),
                  operation: .sourceOver, fraction: 1.0)
@@ -186,13 +186,13 @@ public class SetupWindowController: NSWindowController {
         let delay = debounce ? 0.6 : 0.0
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, self.fetchToken == token else { return }
-            let result = FaviconFetcher.fetchWithSource(from: urlString)
+            let fetched = FaviconFetcher.fetchWithSource(from: urlString)
             self.updateUI { [weak self] in
                 guard let self, self.fetchToken == token else { return }
-                self.faviconData = result?.0
+                self.faviconData = fetched?.0
                 if self.iconLabel.stringValue == "Fetching..." {
                     if self.customIconPath == nil {
-                        if let data = result?.0, let preview = self.makePreview(from: data) {
+                        if let data = fetched?.0, let preview = self.makePreview(from: data) {
                             self.iconImageView.image = preview
                             self.iconLabel.stringValue = "Auto (favicon)"
                         } else {
@@ -262,8 +262,9 @@ public class SetupWindowController: NSWindowController {
     }
 
     @objc private func cancel() {
-        result = SetupResult(url: "", name: "", iconPath: nil, width: 1280, height: 800,
-                             outputDir: "/Applications", menuBar: false, cancelled: true)
+        result = SetupResult(url: "", name: "", iconPath: nil, faviconData: nil,
+                             width: 1280, height: 800, outputDir: "/Applications",
+                             menuBar: false, cancelled: true)
         NSApp.stopModal()
         window?.close()
     }
@@ -280,10 +281,13 @@ public class SetupWindowController: NSWindowController {
             return
         }
         result = SetupResult(
-            url: url, name: name, iconPath: customIconPath,
+            url: url, name: name,
+            iconPath: customIconPath,
+            faviconData: customIconPath == nil ? faviconData : nil,
             width: Int(widthField.stringValue) ?? 1280,
             height: Int(heightField.stringValue) ?? 800,
-            outputDir: "/Applications", menuBar: menuBarCheck.state == .on
+            outputDir: "/Applications",
+            menuBar: menuBarCheck.state == .on
         )
         NSApp.stopModal()
         window?.close()
