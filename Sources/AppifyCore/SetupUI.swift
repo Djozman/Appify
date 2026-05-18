@@ -153,13 +153,10 @@ public class SetupWindowController: NSWindowController {
         CFRunLoopWakeUp(rl)
     }
 
-    /// Pure CoreGraphics composite — thread-safe, works on background queues.
-    /// Grey card at `pixels`x`pixels`, favicon scaled to 75% fill.
-    /// Returns PNG data. The preview is just a downscale of the 1024px version.
+    /// Pure CoreGraphics — thread-safe. Renders favicon onto grey card at `pixels`x`pixels`.
     private static func compositePNG(faviconData: Data, pixels: Int) -> Data? {
         guard let src = CGImageSourceCreateWithData(faviconData as CFData, nil),
               let cgSrc = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
-
         let size = pixels
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         guard let ctx = CGContext(
@@ -168,12 +165,8 @@ public class SetupWindowController: NSWindowController {
             space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
-
-        // Grey background
         ctx.setFillColor(CGColor(gray: 0.94, alpha: 1.0))
         ctx.fill(CGRect(x: 0, y: 0, width: size, height: size))
-
-        // Scale favicon to 75% of canvas, centered
         let srcW = CGFloat(cgSrc.width)
         let srcH = CGFloat(cgSrc.height)
         let maxSide = CGFloat(size) * 0.75
@@ -182,14 +175,11 @@ public class SetupWindowController: NSWindowController {
         let drawH = srcH * scale
         let drawX = (CGFloat(size) - drawW) / 2
         let drawY = (CGFloat(size) - drawH) / 2
-
-        // CG origin is bottom-left; flip to draw image right-side up
         ctx.saveGState()
         ctx.translateBy(x: 0, y: CGFloat(size))
         ctx.scaleBy(x: 1, y: -1)
         ctx.draw(cgSrc, in: CGRect(x: drawX, y: drawY, width: drawW, height: drawH))
         ctx.restoreGState()
-
         guard let rendered = ctx.makeImage() else { return nil }
         let dest = NSMutableData()
         guard let imgDest = CGImageDestinationCreateWithData(dest, "public.png" as CFString, 1, nil) else { return nil }
@@ -204,31 +194,29 @@ public class SetupWindowController: NSWindowController {
         let delay = debounce ? 0.6 : 0.0
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, self.fetchToken == token else { return }
-            let fetched = FaviconFetcher.fetchWithSource(from: urlString)
-            var previewImg: NSImage? = nil
-            var png1024: Data? = nil
-            if let data = fetched?.0 {
-                // Render once at 1024 — preview is a downscale of the same PNG
-                if let png = Self.compositePNG(faviconData: data, pixels: 1024) {
-                    png1024 = png
-                    previewImg = NSImage(data: png)
+            guard let (faviconData, _) = FaviconFetcher.fetchWithSource(from: urlString) else {
+                self.updateUI { [weak self] in
+                    guard let self, self.fetchToken == token else { return }
+                    if self.iconLabel.stringValue == "Fetching..." {
+                        self.iconImageView.image = self.defaultIcon()
+                        self.iconLabel.stringValue = "No favicon found"
+                    }
                 }
+                return
             }
+            // Build 1024px composite for icns
+            let png1024 = Self.compositePNG(faviconData: faviconData, pixels: 1024)
             self.updateUI { [weak self] in
                 guard let self, self.fetchToken == token else { return }
                 self.previewPNG = png1024
-                if self.iconLabel.stringValue == "Fetching..." {
-                    if self.customIconPath == nil {
-                        if let img = previewImg {
-                            self.iconImageView.image = img
-                            self.iconLabel.stringValue = "Auto (favicon)"
-                        } else {
-                            self.iconImageView.image = self.defaultIcon()
-                            self.iconLabel.stringValue = "No favicon found"
-                        }
+                if self.iconLabel.stringValue == "Fetching...", self.customIconPath == nil {
+                    // Show raw favicon data in preview — NSImage handles all formats correctly on main thread
+                    if let img = NSImage(data: faviconData) {
+                        self.iconImageView.image = img
+                        self.iconLabel.stringValue = "Auto (favicon)"
                     } else {
-                        self.iconLabel.stringValue = self.customIconPath
-                            .flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? "Custom icon"
+                        self.iconImageView.image = self.defaultIcon()
+                        self.iconLabel.stringValue = "No favicon found"
                     }
                 }
             }
