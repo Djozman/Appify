@@ -7,7 +7,7 @@ struct AppifyCLI {
             let args = try parseArgs(CommandLine.arguments)
             try run(args: args)
         } catch {
-            fputs("\u2717 \(error.localizedDescription)\n", stderr)
+            fputs("✗ \(error.localizedDescription)\n", stderr)
             exit(1)
         }
     }
@@ -15,10 +15,10 @@ struct AppifyCLI {
     static func run(args: CLIArgs) throws {
         print("")
         print("  Appify v1.1.0")
-        print("  ─────────────────────────────────")
+        print("  ---------------------------------")
         print("  App   : \(args.name)")
         print("  URL   : \(args.url)")
-        print("  Size  : \(args.width)×\(args.height)")
+        print("  Size  : \(args.width)x\(args.height)")
         if args.menuBar { print("  Mode  : Menu bar") }
         print("  Output: \(args.outputDir)")
         print("")
@@ -45,7 +45,7 @@ struct AppifyCLI {
                 try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
                 defer { try? fm.removeItem(at: tempDir) }
                 iconURL = IconConverter.convertPngToIcns(pngPath: iconPath, tempDir: tempDir)
-                print(iconURL != nil ? "  ✓ Icon converted" : "  ⚠ Icon conversion failed, continuing without icon")
+                print(iconURL != nil ? "  OK Icon converted" : "  WARN Icon conversion failed, continuing without icon")
             }
         } else if !args.noFavicon {
             print("  Fetching favicon...")
@@ -55,9 +55,9 @@ struct AppifyCLI {
                 try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
                 defer { try? fm.removeItem(at: tempDir) }
                 iconURL = IconConverter.convertToIcns(pngData: data, in: tempDir)
-                print(iconURL != nil ? "  ✓ Icon ready" : "  ⚠ Could not convert favicon, continuing without icon")
+                print(iconURL != nil ? "  OK Icon ready" : "  WARN Could not convert favicon, continuing without icon")
             } else {
-                print("  ⚠ Could not fetch favicon, continuing without icon")
+                print("  WARN Could not fetch favicon, continuing without icon")
             }
         }
 
@@ -66,7 +66,7 @@ struct AppifyCLI {
         let appURL = try builder.build(iconURL: iconURL)
 
         print("")
-        print("  ✓ Created: \(appURL.path)")
+        print("  OK Created: \(appURL.path)")
         print("")
         print("  Launch:")
         print("    open \"\(appURL.path)\"")
