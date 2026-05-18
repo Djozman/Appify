@@ -37,6 +37,10 @@ struct AppifyCLI {
         let fm = FileManager.default
         try fm.createDirectory(atPath: setup.outputDir, withIntermediateDirectories: true)
 
+        // Create tempDir once — lives until AFTER BundleBuilder copies the icon out
+        let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
         var iconURL: URL? = nil
 
         if let customIcon = setup.iconPath {
@@ -45,9 +49,6 @@ struct AppifyCLI {
                 iconURL = iconPath
             } else {
                 print("  Converting custom icon to .icns...")
-                let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-                try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
-                defer { try? fm.removeItem(at: tempDir) }
                 iconURL = IconConverter.convertPngToIcns(pngPath: iconPath, tempDir: tempDir)
                 print(iconURL != nil ? "  Icon converted." : "  Icon conversion failed.")
             }
@@ -55,18 +56,11 @@ struct AppifyCLI {
             print("  Fetching icon for \(setup.url)...")
             if let (data, source) = FaviconFetcher.fetchWithSource(from: setup.url) {
                 print("  Fetched \(data.count) bytes from: \(source)")
-                let header = data.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
-                print("  Magic bytes: \(header)")
-
-                let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-                try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
-                defer { try? fm.removeItem(at: tempDir) }
-
                 print("  Converting to .icns...")
                 iconURL = IconConverter.convertToIcns(pngData: data, in: tempDir)
-                print(iconURL != nil ? "  Icon ready." : "  Conversion returned nil — check magic bytes above.")
+                print(iconURL != nil ? "  Icon ready." : "  Conversion failed.")
             } else {
-                print("  Fetch returned nil — all candidates failed.")
+                print("  Could not fetch icon, continuing without.")
             }
         }
 
@@ -85,6 +79,9 @@ struct AppifyCLI {
 
         let builder = BundleBuilder(args: finalArgs, launcherBinary: launcherBinary)
         let appURL = try builder.build(iconURL: iconURL)
+
+        // Clean up temp dir only after bundle is fully built
+        try? fm.removeItem(at: tempDir)
 
         print("")
         print("  Created: \(appURL.path)")
