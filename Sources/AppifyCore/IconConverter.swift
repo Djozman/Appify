@@ -62,8 +62,15 @@ public struct IconConverter {
             return nil
 
         default:
-            // PNG, JPG, GIF, TIFF, BMP, WebP — NSImage can open these directly
-            guard let image = NSImage(data: data) else { return nil }
+            // PNG, JPG, GIF, TIFF, BMP, WebP — try NSImage first,
+            // fall back to CoreGraphics for formats NSImage doesn't handle.
+            let image: NSImage? = {
+                if let img = NSImage(data: data) { return img }
+                guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+                      let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+                return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+            }()
+            guard let image else { return nil }
             let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
             let pw = rep.flatMap { $0.pixelsWide > 0 ? $0.pixelsWide : nil } ?? Int(image.size.width)
             let ph = rep.flatMap { $0.pixelsHigh > 0 ? $0.pixelsHigh : nil } ?? Int(image.size.height)
