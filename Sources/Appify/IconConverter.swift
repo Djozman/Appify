@@ -5,42 +5,84 @@ struct IconConverter {
 
     /// Convert raw image data (any format) to .icns
     static func convertToIcns(pngData: Data, in tempDir: URL) -> URL? {
-        // Write raw bytes first so sips can identify the format
-        let rawPath = tempDir.appendingPathComponent("icon_raw")
-        do { try pngData.write(to: rawPath) } catch { return nil }
-
-        // Detect format from magic bytes
         let ext = imageExtension(for: pngData)
+
+        // SVG: rasterize via NSImage directly (sips cannot handle SVG)
+        if ext == "svg" {
+            guard let image = NSImage(data: pngData) else { return nil }
+            // Force rasterize at high res
+            let rasterized = rasterize(image, size: 1024)
+            let squared = squarePadded(rasterized, size: 1024)
+            guard let squaredData = toPNG(squared) else { return nil }
+            let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
+            do { try squaredData.write(to: squaredPath) } catch { return nil }
+            return buildIcns(from: squaredPath, tempDir: tempDir)
+        }
+
+        // ICO: extract best frame via NSImage (handles multi-resolution ICO)
+        if ext == "ico" {
+            let srcPath = tempDir.appendingPathComponent("icon_src.ico")
+            do { try pngData.write(to: srcPath) } catch { return nil }
+            // Try NSImage first (works for most ICOs)
+            if let image = NSImage(contentsOf: srcPath) {
+                let squared = squarePadded(image, size: 1024)
+                guard let squaredData = toPNG(squared) else { return nil }
+                let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
+                do { try squaredData.write(to: squaredPath) } catch { return nil }
+                return buildIcns(from: squaredPath, tempDir: tempDir)
+            }
+            // Fallback: sips format conversion
+            let converted = tempDir.appendingPathComponent("icon_converted.png")
+            if run("/usr/bin/sips", ["-s", "format", "png", srcPath.path, "--out", converted.path]),
+               let image = NSImage(contentsOf: converted) {
+                let squared = squarePadded(image, size: 1024)
+                guard let squaredData = toPNG(squared) else { return nil }
+                let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
+                do { try squaredData.write(to: squaredPath) } catch { return nil }
+                return buildIcns(from: squaredPath, tempDir: tempDir)
+            }
+            return nil
+        }
+
+        // JPEG / PNG / WebP / GIF / TIFF / BMP
         let srcPath = tempDir.appendingPathComponent("icon_src.\(ext)")
         do { try pngData.write(to: srcPath) } catch { return nil }
 
-        // If it's not already a PNG, use sips to convert to PNG first
+        // Convert non-PNG to PNG via sips if needed
         let pngPath: URL
         if ext == "png" {
             pngPath = srcPath
         } else {
             let converted = tempDir.appendingPathComponent("icon_converted.png")
-            // sips can handle ico, gif, tiff, bmp, webp on macOS
             if run("/usr/bin/sips", ["-s", "format", "png", srcPath.path, "--out", converted.path]) {
                 pngPath = converted
-            } else {
-                // Last resort: try NSImage decode anyway
-                guard let image = NSImage(data: pngData) else { return nil }
-                guard let reencoded = toPNG(image) else { return nil }
+            } else if let image = NSImage(data: pngData), let data = toPNG(image) {
                 let fallback = tempDir.appendingPathComponent("icon_fallback.png")
-                do { try reencoded.write(to: fallback) } catch { return nil }
+                do { try data.write(to: fallback) } catch { return nil }
                 pngPath = fallback
+            } else {
+                return nil
             }
         }
 
-        // Now load as NSImage for square-padding
-        guard let image = NSImage(contentsOf: pngPath) else {
-            // If NSImage still can't read it, try sips pixel dimensions directly
-            return buildIcnsDirectly(from: pngPath, tempDir: tempDir)
+        guard let image = NSImage(contentsOf: pngPath) else { return nil }
+
+        // Detect aspect ratio — if wide (og:image banner), center-square crop instead of letterbox
+        let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
+        let pw = rep.flatMap { $0.pixelsWide > 0 ? $0.pixelsWide : nil } ?? Int(image.size.width)
+        let ph = rep.flatMap { $0.pixelsHigh > 0 ? $0.pixelsHigh : nil } ?? Int(image.size.height)
+        let ratio = Double(pw) / Double(max(ph, 1))
+
+        let finalImage: NSImage
+        if ratio > 1.3 {
+            // Wide image (banner/og:image) — center-square crop
+            finalImage = centerCrop(image, pixelW: pw, pixelH: ph)
+        } else {
+            // Already squarish — just pad
+            finalImage = squarePadded(image, size: 1024)
         }
 
-        let squared = squarePadded(image, size: 1024)
-        guard let squaredData = toPNG(squared) else { return nil }
+        guard let squaredData = toPNG(finalImage) else { return nil }
         let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
         do { try squaredData.write(to: squaredPath) } catch { return nil }
         return buildIcns(from: squaredPath, tempDir: tempDir)
@@ -58,58 +100,76 @@ struct IconConverter {
 
     // MARK: - Format detection
 
-    private static func imageExtension(for data: Data) -> String {
+    static func imageExtension(for data: Data) -> String {
         guard data.count >= 4 else { return "png" }
-        let bytes = [UInt8](data.prefix(16))
-        // PNG: 89 50 4E 47
-        if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "png" }
-        // JPEG: FF D8
-        if bytes.starts(with: [0xFF, 0xD8]) { return "jpg" }
-        // GIF: 47 49 46
-        if bytes.starts(with: [0x47, 0x49, 0x46]) { return "gif" }
-        // TIFF: 49 49 or 4D 4D
-        if bytes.starts(with: [0x49, 0x49]) || bytes.starts(with: [0x4D, 0x4D]) { return "tiff" }
-        // BMP: 42 4D
-        if bytes.starts(with: [0x42, 0x4D]) { return "bmp" }
-        // ICO: 00 00 01 00
-        if bytes.starts(with: [0x00, 0x00, 0x01, 0x00]) { return "ico" }
-        // WebP: 52 49 46 46 ... 57 45 42 50
-        if bytes.count >= 12, bytes[0...3] == [0x52,0x49,0x46,0x46][...],
+        let b = [UInt8](data.prefix(16))
+        if b.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "png" }
+        if b.starts(with: [0xFF, 0xD8])               { return "jpg" }
+        if b.starts(with: [0x47, 0x49, 0x46])         { return "gif" }
+        if b.starts(with: [0x49, 0x49]) || b.starts(with: [0x4D, 0x4D]) { return "tiff" }
+        if b.starts(with: [0x42, 0x4D])               { return "bmp" }
+        if b.starts(with: [0x00, 0x00, 0x01, 0x00])   { return "ico" }
+        if b.count >= 12, b[0...3] == [0x52,0x49,0x46,0x46][...],
            [UInt8](data[8..<12]) == [0x57,0x45,0x42,0x50] { return "webp" }
-        // ICNS: 69 63 6E 73
-        if bytes.starts(with: [0x69, 0x63, 0x6E, 0x73]) { return "icns" }
-        return "png" // assume PNG as fallback
+        if b.starts(with: [0x69, 0x63, 0x6E, 0x73])   { return "icns" }
+        // SVG detection: look for "<svg" in first 512 bytes
+        if let text = String(data: data.prefix(512), encoding: .utf8),
+           text.lowercased().contains("<svg") { return "svg" }
+        return "png"
     }
 
-    // MARK: - Square padding
+    // MARK: - Image transforms
 
+    /// Force NSImage to rasterize at a specific pixel size (important for SVG)
+    private static func rasterize(_ image: NSImage, size: Int) -> NSImage {
+        let s = CGFloat(size)
+        let result = NSImage(size: NSSize(width: s, height: s))
+        result.lockFocus()
+        NSColor.clear.setFill()
+        NSRect(x: 0, y: 0, width: s, height: s).fill()
+        image.draw(in: NSRect(x: 0, y: 0, width: s, height: s),
+                   from: .zero, operation: .sourceOver, fraction: 1.0)
+        result.unlockFocus()
+        return result
+    }
+
+    /// Fit image into a square canvas with 85% fill and transparent background
     private static func squarePadded(_ image: NSImage, size: Int) -> NSImage {
         let canvas = CGFloat(size)
-        let srcSize: CGSize
-        if let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide }) {
-            let w = rep.pixelsWide > 0 ? CGFloat(rep.pixelsWide) : image.size.width
-            let h = rep.pixelsHigh > 0 ? CGFloat(rep.pixelsHigh) : image.size.height
-            srcSize = CGSize(width: max(w, 1), height: max(h, 1))
-        } else {
-            srcSize = CGSize(width: max(image.size.width, 1), height: max(image.size.height, 1))
-        }
+        let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
+        let w = rep.flatMap { $0.pixelsWide > 0 ? CGFloat($0.pixelsWide) : nil } ?? image.size.width
+        let h = rep.flatMap { $0.pixelsHigh > 0 ? CGFloat($0.pixelsHigh) : nil } ?? image.size.height
+        let srcSize = CGSize(width: max(w, 1), height: max(h, 1))
         let maxContent = canvas * 0.85
         let scale = min(maxContent / srcSize.width, maxContent / srcSize.height)
         let drawW = srcSize.width * scale
         let drawH = srcSize.height * scale
         let drawX = (canvas - drawW) / 2
         let drawY = (canvas - drawH) / 2
-
         let result = NSImage(size: NSSize(width: canvas, height: canvas))
         result.lockFocus()
         NSColor.clear.setFill()
         NSRect(x: 0, y: 0, width: canvas, height: canvas).fill()
-        image.draw(
-            in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH),
-            from: NSRect(origin: .zero, size: srcSize),
-            operation: .sourceOver,
-            fraction: 1.0
-        )
+        image.draw(in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH),
+                   from: NSRect(origin: .zero, size: srcSize),
+                   operation: .sourceOver, fraction: 1.0)
+        result.unlockFocus()
+        return result
+    }
+
+    /// Center-square crop: takes the middle square of a wide image
+    private static func centerCrop(_ image: NSImage, pixelW: Int, pixelH: Int) -> NSImage {
+        let side = CGFloat(min(pixelW, pixelH))
+        let srcX = (CGFloat(pixelW) - side) / 2
+        let srcY = (CGFloat(pixelH) - side) / 2
+        let canvas: CGFloat = 1024
+        let result = NSImage(size: NSSize(width: canvas, height: canvas))
+        result.lockFocus()
+        NSColor.clear.setFill()
+        NSRect(x: 0, y: 0, width: canvas, height: canvas).fill()
+        image.draw(in: NSRect(x: 0, y: 0, width: canvas, height: canvas),
+                   from: NSRect(x: srcX, y: srcY, width: side, height: side),
+                   operation: .sourceOver, fraction: 1.0)
         result.unlockFocus()
         return result
     }
@@ -130,8 +190,7 @@ struct IconConverter {
         let icnsPath   = tempDir.appendingPathComponent("icon.icns")
         do { try FileManager.default.createDirectory(at: iconsetDir, withIntermediateDirectories: true) }
         catch { return nil }
-        let sizes = [16, 32, 128, 256, 512]
-        for size in sizes {
+        for size in [16, 32, 128, 256, 512] {
             let out   = iconsetDir.appendingPathComponent("icon_\(size)x\(size).png")
             let out2x = iconsetDir.appendingPathComponent("icon_\(size)x\(size)@2x.png")
             guard sips(pngPath.path, size: size,     out: out.path)   else { return nil }
@@ -139,32 +198,6 @@ struct IconConverter {
         }
         guard run("/usr/bin/iconutil", ["-c", "icns", iconsetDir.path, "-o", icnsPath.path]) else { return nil }
         return icnsPath
-    }
-
-    /// Fallback: skip NSImage entirely, let sips do all the work
-    private static func buildIcnsDirectly(from pngPath: URL, tempDir: URL) -> URL? {
-        // Resize to square using sips padding trick: expand canvas then resize
-        let squaredPath = tempDir.appendingPathComponent("icon_sq_direct.png")
-        // Get image dimensions
-        var w = 0, h = 0
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/sips")
-        proc.arguments = ["--getProperty", "pixelWidth", "--getProperty", "pixelHeight", pngPath.path]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        proc.standardError = FileHandle.nullDevice
-        try? proc.run(); proc.waitUntilExit()
-        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        for line in out.components(separatedBy: "\n") {
-            if line.contains("pixelWidth"), let v = line.components(separatedBy: ":").last.flatMap({ Int($0.trimmingCharacters(in: .whitespaces)) }) { w = v }
-            if line.contains("pixelHeight"), let v = line.components(separatedBy: ":").last.flatMap({ Int($0.trimmingCharacters(in: .whitespaces)) }) { h = v }
-        }
-        let side = max(w, h, 1)
-        // Pad to square with sips --padColor
-        if run("/usr/bin/sips", ["-z", "\(side)", "\(side)", "--padColor", "00000000", pngPath.path, "--out", squaredPath.path]) {
-            return buildIcns(from: squaredPath, tempDir: tempDir)
-        }
-        return buildIcns(from: pngPath, tempDir: tempDir)
     }
 
     private static func sips(_ src: String, size: Int, out: String) -> Bool {
