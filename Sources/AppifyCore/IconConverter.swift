@@ -19,7 +19,7 @@ public struct IconConverter {
             let srcPath = tempDir.appendingPathComponent("icon_src.ico")
             do { try pngData.write(to: srcPath) } catch { return nil }
             if let image = NSImage(contentsOf: srcPath) {
-                let squared = squarePadded(image, size: 1024)
+                let squared = squarePadded(image, size: 1024, sourceData: pngData)
                 guard let squaredData = toPNG(squared) else { return nil }
                 let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
                 do { try squaredData.write(to: squaredPath) } catch { return nil }
@@ -28,7 +28,7 @@ public struct IconConverter {
             let converted = tempDir.appendingPathComponent("icon_converted.png")
             if run("/usr/bin/sips", ["-s", "format", "png", srcPath.path, "--out", converted.path]),
                let image = NSImage(contentsOf: converted) {
-                let squared = squarePadded(image, size: 1024)
+                let squared = squarePadded(image, size: 1024, sourceData: pngData)
                 guard let squaredData = toPNG(squared) else { return nil }
                 let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
                 do { try squaredData.write(to: squaredPath) } catch { return nil }
@@ -61,7 +61,7 @@ public struct IconConverter {
         let pw = rep.flatMap { $0.pixelsWide > 0 ? $0.pixelsWide : nil } ?? Int(image.size.width)
         let ph = rep.flatMap { $0.pixelsHigh > 0 ? $0.pixelsHigh : nil } ?? Int(image.size.height)
         let ratio = Double(pw) / Double(max(ph, 1))
-        let finalImage = ratio > 1.3 ? centerCrop(image, pixelW: pw, pixelH: ph) : squarePadded(image, size: 1024)
+        let finalImage = ratio > 1.3 ? centerCrop(image, pixelW: pw, pixelH: ph) : squarePadded(image, size: 1024, sourceData: pngData)
         guard let squaredData = toPNG(finalImage) else { return nil }
         let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
         do { try squaredData.write(to: squaredPath) } catch { return nil }
@@ -69,11 +69,12 @@ public struct IconConverter {
     }
 
     public static func convertPngToIcns(pngPath: URL, tempDir: URL) -> URL? {
-        guard let image = NSImage(contentsOf: pngPath) else { return nil }
-        let squared = squarePadded(image, size: 1024)
-        guard let pngData = toPNG(squared) else { return nil }
+        guard let image = NSImage(contentsOf: pngPath),
+              let pngData = try? Data(contentsOf: pngPath) else { return nil }
+        let squared = squarePadded(image, size: 1024, sourceData: pngData)
+        guard let squaredPNG = toPNG(squared) else { return nil }
         let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
-        do { try pngData.write(to: squaredPath) } catch { return nil }
+        do { try squaredPNG.write(to: squaredPath) } catch { return nil }
         return buildIcns(from: squaredPath, tempDir: tempDir)
     }
 
@@ -93,6 +94,38 @@ public struct IconConverter {
            text.lowercased().contains("<svg") { return "svg" }
         return "png"
     }
+
+    // MARK: - Transparency detection
+
+    /// Returns true if the image has meaningful transparent pixels (alpha < 255 in any corner/sample).
+    private static func hasTransparency(_ data: Data) -> Bool {
+        let ext = imageExtension(for: data)
+        // JPEGs never have alpha
+        if ext == "jpg" || ext == "bmp" { return false }
+        guard let image = NSImage(data: data),
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return false }
+        guard let alphaInfo = cgImage.colorSpace.flatMap({ _ in Optional(cgImage.alphaInfo) }),
+              alphaInfo != .none, alphaInfo != .noneSkipFirst, alphaInfo != .noneSkipLast
+        else { return false }
+        // Sample a 32x32 thumbnail for speed
+        let side = 32
+        let bytesPerRow = side * 4
+        var pixels = [UInt8](repeating: 0, count: side * bytesPerRow)
+        guard let ctx = CGContext(
+            data: &pixels, width: side, height: side,
+            bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return false }
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: side, height: side))
+        // Check if any pixel has alpha < 240 (not fully opaque)
+        for i in stride(from: 3, to: pixels.count, by: 4) {
+            if pixels[i] < 240 { return true }
+        }
+        return false
+    }
+
+    // MARK: - Core compositing
 
     private static func rasterizeSVG(_ image: NSImage, svgData: Data, size: Int) -> NSImage {
         let s = CGFloat(size)
@@ -126,22 +159,45 @@ public struct IconConverter {
         return hasWhiteFill && !hasBackground
     }
 
-    private static func squarePadded(_ image: NSImage, size: Int) -> NSImage {
+    /// Composite the image onto a square canvas.
+    /// If the source has transparency, adds a white rounded-rect background
+    /// (matching macOS app icon style) so the final icon looks consistent.
+    private static func squarePadded(_ image: NSImage, size: Int, sourceData: Data? = nil) -> NSImage {
         let canvas = CGFloat(size)
         let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
         let w = rep.flatMap { $0.pixelsWide > 0 ? CGFloat($0.pixelsWide) : nil } ?? image.size.width
         let h = rep.flatMap { $0.pixelsHigh > 0 ? CGFloat($0.pixelsHigh) : nil } ?? image.size.height
         let srcSize = CGSize(width: max(w, 1), height: max(h, 1))
-        let maxContent = canvas * 0.85
+
+        // Detect transparency from original data (more reliable than NSImage)
+        let transparent = sourceData.map { hasTransparency($0) } ?? false
+
+        // Padding: more padding when we add a background card, less otherwise
+        let contentFraction: CGFloat = transparent ? 0.72 : 0.85
+        let maxContent = canvas * contentFraction
         let scale = min(maxContent / srcSize.width, maxContent / srcSize.height)
-        let drawW = srcSize.width * scale; let drawH = srcSize.height * scale
-        let drawX = (canvas - drawW) / 2; let drawY = (canvas - drawH) / 2
+        let drawW = srcSize.width * scale
+        let drawH = srcSize.height * scale
+        let drawX = (canvas - drawW) / 2
+        let drawY = (canvas - drawH) / 2
+
         let result = NSImage(size: NSSize(width: canvas, height: canvas))
         result.lockFocus()
-        NSColor.clear.setFill()
-        NSRect(x: 0, y: 0, width: canvas, height: canvas).fill()
+
+        // Transparent source: paint a white rounded-rect card (macOS-style)
+        if transparent {
+            NSColor.white.setFill()
+            let cornerRadius = canvas * 0.22   // matches macOS icon rounding
+            NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: canvas, height: canvas),
+                         xRadius: cornerRadius, yRadius: cornerRadius).fill()
+        } else {
+            NSColor.clear.setFill()
+            NSRect(x: 0, y: 0, width: canvas, height: canvas).fill()
+        }
+
         image.draw(in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH),
-                   from: NSRect(origin: .zero, size: srcSize), operation: .sourceOver, fraction: 1.0)
+                   from: NSRect(origin: .zero, size: srcSize),
+                   operation: .sourceOver, fraction: 1.0)
         result.unlockFocus()
         return result
     }
