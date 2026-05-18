@@ -1,0 +1,287 @@
+import Cocoa
+import Foundation
+
+// Result returned from the setup wizard
+struct SetupResult {
+    let url: String
+    let name: String
+    let iconPath: String?   // nil = use favicon
+    let width: Int
+    let height: Int
+    let outputDir: String
+    let menuBar: Bool
+    var cancelled: Bool = false
+}
+
+class SetupWindowController: NSWindowController {
+    // Inputs
+    private let urlField      = NSTextField()
+    private let nameField     = NSTextField()
+    private let iconImageView = NSImageView()
+    private let iconLabel     = NSTextField(labelWithString: "Auto (favicon)")
+    private let widthField    = NSTextField()
+    private let heightField   = NSTextField()
+    private let menuBarCheck  = NSButton(checkboxWithTitle: "Run as menu bar app (no Dock icon)", target: nil, action: nil)
+
+    private var customIconPath: String? = nil
+    private var faviconData: Data? = nil
+    private var fetchWorkItem: DispatchWorkItem? = nil
+
+    var result: SetupResult?
+
+    convenience init(url: String, name: String) {
+        let win = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        win.title = "Appify — Create App"
+        win.center()
+        self.init(window: win)
+        buildUI(url: url, name: name)
+    }
+
+    private func buildUI(url: String, name: String) {
+        guard let content = window?.contentView else { return }
+        content.wantsLayer = true
+
+        // --- Icon preview (left column) ---
+        iconImageView.frame = NSRect(x: 24, y: 260, width: 80, height: 80)
+        iconImageView.imageScaling = .scaleProportionallyUpOrDown
+        iconImageView.wantsLayer = true
+        iconImageView.layer?.cornerRadius = 16
+        iconImageView.layer?.masksToBounds = true
+        iconImageView.layer?.borderWidth = 1
+        iconImageView.layer?.borderColor = NSColor.separatorColor.cgColor
+        iconImageView.image = defaultIcon()
+        content.addSubview(iconImageView)
+
+        iconLabel.frame = NSRect(x: 8, y: 240, width: 112, height: 18)
+        iconLabel.font = .systemFont(ofSize: 11)
+        iconLabel.textColor = .secondaryLabelColor
+        iconLabel.alignment = .center
+        content.addSubview(iconLabel)
+
+        let chooseBtn = NSButton(title: "Choose Image...", target: self, action: #selector(chooseIcon))
+        chooseBtn.frame = NSRect(x: 12, y: 210, width: 104, height: 26)
+        chooseBtn.bezelStyle = .rounded
+        chooseBtn.font = .systemFont(ofSize: 12)
+        content.addSubview(chooseBtn)
+
+        let resetBtn = NSButton(title: "Use Favicon", target: self, action: #selector(resetIcon))
+        resetBtn.frame = NSRect(x: 12, y: 182, width: 104, height: 24)
+        resetBtn.bezelStyle = .inline
+        resetBtn.font = .systemFont(ofSize: 11)
+        content.addSubview(resetBtn)
+
+        // --- Right column fields ---
+        let rightX: CGFloat = 140
+        let fieldW: CGFloat = 316
+
+        addLabel("Website URL", x: rightX, y: 356, w: fieldW, to: content)
+        urlField.frame = NSRect(x: rightX, y: 332, width: fieldW, height: 22)
+        urlField.stringValue = url
+        urlField.placeholderString = "https://example.com"
+        urlField.target = self
+        urlField.action = #selector(urlChanged)
+        (urlField.cell as? NSTextFieldCell)?.sendsActionOnEndEditing = true
+        content.addSubview(urlField)
+
+        addLabel("App Name", x: rightX, y: 308, w: fieldW, to: content)
+        nameField.frame = NSRect(x: rightX, y: 284, width: fieldW, height: 22)
+        nameField.stringValue = name
+        nameField.placeholderString = "My App"
+        content.addSubview(nameField)
+
+        addLabel("Window Size", x: rightX, y: 260, w: 120, to: content)
+        widthField.frame = NSRect(x: rightX, y: 236, width: 70, height: 22)
+        widthField.stringValue = "1280"
+        widthField.placeholderString = "Width"
+        content.addSubview(widthField)
+
+        let xLabel = NSTextField(labelWithString: "x")
+        xLabel.frame = NSRect(x: rightX + 76, y: 238, width: 14, height: 18)
+        content.addSubview(xLabel)
+
+        heightField.frame = NSRect(x: rightX + 96, y: 236, width: 70, height: 22)
+        heightField.stringValue = "800"
+        heightField.placeholderString = "Height"
+        content.addSubview(heightField)
+
+        menuBarCheck.frame = NSRect(x: rightX, y: 200, width: fieldW, height: 22)
+        content.addSubview(menuBarCheck)
+
+        // --- Divider ---
+        let divider = NSBox()
+        divider.boxType = .separator
+        divider.frame = NSRect(x: 20, y: 60, width: 440, height: 1)
+        content.addSubview(divider)
+
+        // --- Buttons ---
+        let cancelBtn = NSButton(title: "Cancel", target: self, action: #selector(cancel))
+        cancelBtn.frame = NSRect(x: 296, y: 20, width: 80, height: 32)
+        cancelBtn.bezelStyle = .rounded
+        cancelBtn.keyEquivalent = String(UnicodeScalar(27)!)  // Escape
+        content.addSubview(cancelBtn)
+
+        let createBtn = NSButton(title: "Create App", target: self, action: #selector(create))
+        createBtn.frame = NSRect(x: 384, y: 20, width: 80, height: 32)
+        createBtn.bezelStyle = .rounded
+        createBtn.keyEquivalent = "\r"
+        createBtn.highlight(true)
+        content.addSubview(createBtn)
+
+        // Trigger initial favicon fetch
+        scheduleFaviconFetch(for: url)
+    }
+
+    @discardableResult
+    private func addLabel(_ text: String, x: CGFloat, y: CGFloat, w: CGFloat, to view: NSView) -> NSTextField {
+        let lbl = NSTextField(labelWithString: text)
+        lbl.frame = NSRect(x: x, y: y, width: w, height: 18)
+        lbl.font = .systemFont(ofSize: 12, weight: .medium)
+        view.addSubview(lbl)
+        return lbl
+    }
+
+    // MARK: - Favicon
+
+    private func scheduleFaviconFetch(for urlString: String) {
+        fetchWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            let data = FaviconFetcher.fetch(from: urlString)
+            DispatchQueue.main.async {
+                self.faviconData = data
+                if self.customIconPath == nil {
+                    if let data = data, let img = NSImage(data: data) {
+                        self.iconImageView.image = img
+                        self.iconLabel.stringValue = "Auto (favicon)"
+                    } else {
+                        self.iconImageView.image = self.defaultIcon()
+                        self.iconLabel.stringValue = "Auto (default)"
+                    }
+                }
+            }
+        }
+        fetchWorkItem = work
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.6, execute: work)
+    }
+
+    @objc private func urlChanged() {
+        let raw = urlField.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty else { return }
+        let url = raw.hasPrefix("http") ? raw : "https://" + raw
+        // Auto-fill name from hostname if name field is empty
+        if nameField.stringValue.isEmpty, let host = URL(string: url)?.host {
+            let cleaned = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+            nameField.stringValue = cleaned.components(separatedBy: ".").first?.capitalized ?? cleaned
+        }
+        scheduleFaviconFetch(for: url)
+    }
+
+    // MARK: - Icon
+
+    @objc private func chooseIcon() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg, .icns, .tiff]
+        panel.title = "Choose App Icon"
+        panel.prompt = "Use as Icon"
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            customIconPath = url.path
+            if let img = NSImage(contentsOf: url) {
+                iconImageView.image = img
+                iconLabel.stringValue = url.lastPathComponent
+            }
+        }
+    }
+
+    @objc private func resetIcon() {
+        customIconPath = nil
+        if let data = faviconData, let img = NSImage(data: data) {
+            iconImageView.image = img
+            iconLabel.stringValue = "Auto (favicon)"
+        } else {
+            iconImageView.image = defaultIcon()
+            iconLabel.stringValue = "Auto (default)"
+        }
+    }
+
+    private func defaultIcon() -> NSImage {
+        let size = NSSize(width: 80, height: 80)
+        let img = NSImage(size: size)
+        img.lockFocus()
+        NSColor.controlAccentColor.withAlphaComponent(0.15).setFill()
+        let path = NSBezierPath(roundedRect: NSRect(origin: .zero, size: size), xRadius: 16, yRadius: 16)
+        path.fill()
+        let globe = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
+        globe?.draw(in: NSRect(x: 16, y: 16, width: 48, height: 48))
+        img.unlockFocus()
+        return img
+    }
+
+    // MARK: - Actions
+
+    @objc private func cancel() {
+        result = SetupResult(
+            url: "", name: "", iconPath: nil,
+            width: 1280, height: 800,
+            outputDir: "/Applications",
+            menuBar: false,
+            cancelled: true
+        )
+        NSApp.stopModal()
+        window?.close()
+    }
+
+    @objc private func create() {
+        var url = urlField.stringValue.trimmingCharacters(in: .whitespaces)
+        if !url.hasPrefix("http") { url = "https://" + url }
+        let name = nameField.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !url.isEmpty, !name.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "Missing Info"
+            alert.informativeText = "Please enter both a URL and an app name."
+            alert.runModal()
+            return
+        }
+        result = SetupResult(
+            url: url,
+            name: name,
+            iconPath: customIconPath,
+            width: Int(widthField.stringValue) ?? 1280,
+            height: Int(heightField.stringValue) ?? 800,
+            outputDir: "/Applications",
+            menuBar: menuBarCheck.state == .on
+        )
+        NSApp.stopModal()
+        window?.close()
+    }
+}
+
+// MARK: - Entry point
+
+func runSetupUI(url: String, name: String) -> SetupResult? {
+    // Must run on main thread
+    var setupResult: SetupResult? = nil
+
+    let app = NSApplication.shared
+    app.setActivationPolicy(.regular)
+
+    class AppDelegate: NSObject, NSApplicationDelegate {
+        func applicationDidFinishLaunching(_ notification: Notification) {}
+    }
+    let delegate = AppDelegate()
+    app.delegate = delegate
+    app.finishLaunching()
+
+    let wc = SetupWindowController(url: url, name: name)
+    wc.showWindow(nil)
+    app.activate(ignoringOtherApps: true)
+    app.runModal(for: wc.window!)
+    setupResult = wc.result
+    return setupResult
+}
