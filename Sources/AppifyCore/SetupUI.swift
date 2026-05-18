@@ -5,7 +5,7 @@ public struct SetupResult {
     public let url: String
     public let name: String
     public let iconPath: String?
-    public let previewPNG: Data?   // composited 1024x1024 PNG — used directly as icns source
+    public let previewPNG: Data?
     public let width: Int
     public let height: Int
     public let outputDir: String
@@ -30,7 +30,7 @@ public class SetupWindowController: NSWindowController {
     private let heightField   = NSTextField()
     private let menuBarCheck  = NSButton(checkboxWithTitle: "Run as menu bar app (no Dock icon)", target: nil, action: nil)
     private var customIconPath: String? = nil
-    private var previewPNG: Data? = nil   // 1024x1024 composited PNG
+    private var previewPNG: Data? = nil
     private var fetchToken: Int = 0
     public var result: SetupResult?
 
@@ -153,8 +153,6 @@ public class SetupWindowController: NSWindowController {
         CFRunLoopWakeUp(rl)
     }
 
-    /// Composite favicon onto grey card at `size` points.
-    /// Returns both the NSImage and its PNG data.
     private func makeComposite(from data: Data, size: CGFloat) -> (NSImage, Data)? {
         guard let src = NSImage(data: data) else { return nil }
         let contentFraction: CGFloat = 0.75
@@ -190,7 +188,6 @@ public class SetupWindowController: NSWindowController {
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, self.fetchToken == token else { return }
             let fetched = FaviconFetcher.fetchWithSource(from: urlString)
-            // Build composites on background thread
             var previewImg: NSImage? = nil
             var png1024: Data? = nil
             if let data = fetched?.0 {
@@ -257,8 +254,8 @@ public class SetupWindowController: NSWindowController {
             return
         }
         iconLabel.stringValue = "Fetching..."
-        let url = raw.hasPrefix("http") ? raw : "https://" + url
-        scheduleFaviconFetch(for: url, debounce: false)
+        let resolved = raw.hasPrefix("http") ? raw : "https://" + raw
+        scheduleFaviconFetch(for: resolved, debounce: false)
     }
 
     private func defaultIcon() -> NSImage {

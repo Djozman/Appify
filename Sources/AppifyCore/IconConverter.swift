@@ -78,8 +78,7 @@ public struct IconConverter {
     }
 
     public static func convertPngToIcns(pngPath: URL, tempDir: URL) -> URL? {
-        guard let image = NSImage(contentsOf: pngPath),
-              let pngData = try? Data(contentsOf: pngPath) else { return nil }
+        guard let image = NSImage(contentsOf: pngPath) else { return nil }
         let squared = squarePadded(image, size: 1024)
         guard let squaredPNG = toPNG(squared) else { return nil }
         let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
