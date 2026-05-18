@@ -5,30 +5,47 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/version.env"
 
-ARCH_ARM="$ROOT/.build/arm64-apple-macosx/release/AppifyGUI"
-ARCH_X86="$ROOT/.build/x86_64-apple-macosx/release/AppifyGUI"
 LAUNCHER_ARM="$ROOT/.build/arm64-apple-macosx/release/Launcher"
 LAUNCHER_X86="$ROOT/.build/x86_64-apple-macosx/release/Launcher"
+CORE_RES="$ROOT/Sources/AppifyCore/Resources"
 DIST="$ROOT/dist"
 APP="$DIST/Appify.app"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
 RES="$CONTENTS/Resources"
 
-echo "===> Building AppifyGUI (arm64 + x86_64)..."
+# ---- Step 1: Build Launcher first (both arches) ----
+echo "===> Building Launcher (arm64 + x86_64)..."
 cd "$ROOT"
-swift build -c release --arch arm64   --product AppifyGUI
-swift build -c release --arch x86_64  --product AppifyGUI
-swift build -c release --arch arm64   --product Launcher
-swift build -c release --arch x86_64  --product Launcher
+swift build -c release --arch arm64  --product Launcher
+swift build -c release --arch x86_64 --product Launcher
 
-echo "===> Assembling universal binaries..."
+# ---- Step 2: Embed universal Launcher into AppifyCore/Resources ----
+# SPM will bundle it at compile-time so Bundle.module can find it at runtime.
+echo "===> Embedding Launcher into AppifyCore/Resources..."
+mkdir -p "$CORE_RES"
+lipo -create -output "$CORE_RES/Launcher" "$LAUNCHER_ARM" "$LAUNCHER_X86"
+chmod +x "$CORE_RES/Launcher"
+
+# ---- Step 3: Build AppifyGUI (Launcher is now in the resource bundle) ----
+echo "===> Building AppifyGUI (arm64 + x86_64)..."
+swift build -c release --arch arm64  --product AppifyGUI
+swift build -c release --arch x86_64 --product AppifyGUI
+
+# ---- Step 4: Assemble Appify.app ----
+echo "===> Assembling Appify.app..."
 mkdir -p "$MACOS" "$RES"
 
+ARCH_ARM="$ROOT/.build/arm64-apple-macosx/release/AppifyGUI"
+ARCH_X86="$ROOT/.build/x86_64-apple-macosx/release/AppifyGUI"
 lipo -create -output "$MACOS/AppifyGUI" "$ARCH_ARM" "$ARCH_X86"
-lipo -create -output "$MACOS/Launcher"  "$LAUNCHER_ARM" "$LAUNCHER_X86"
-chmod +x "$MACOS/AppifyGUI" "$MACOS/Launcher"
+chmod +x "$MACOS/AppifyGUI"
 
+# Also place Launcher in Contents/Resources as a fallback for the distributed app
+lipo -create -output "$RES/Launcher" "$LAUNCHER_ARM" "$LAUNCHER_X86"
+chmod +x "$RES/Launcher"
+
+# ---- Step 5: Info.plist + PkgInfo ----
 echo "===> Writing Info.plist..."
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -55,17 +72,16 @@ PLIST
 
 printf 'APPL????' > "$CONTENTS/PkgInfo"
 
-# Copy bundled Launcher so GUI can embed it into created apps
-cp "$MACOS/Launcher" "$RES/Launcher"
-
-echo "===> Copying app icon..."
+# ---- Step 6: App icon ----
 if [ -f "$ROOT/Assets/AppIcon.icns" ]; then
     cp "$ROOT/Assets/AppIcon.icns" "$RES/AppIcon.icns"
 else
     echo "  [warning] No Assets/AppIcon.icns found — app will use default icon"
 fi
 
+# ---- Step 7: DMG ----
 echo "===> Creating DMG..."
+mkdir -p "$DIST"
 DMG_PATH="$DIST/Appify-${VERSION}.dmg"
 hdiutil create -volname "Appify" \
     -srcfolder "$APP" \
@@ -77,4 +93,4 @@ echo "Done!"
 echo "  App : $APP"
 echo "  DMG : $DMG_PATH"
 echo ""
-echo "Double-click to test: open \"$APP\""
+echo "To test: open \"$APP\""
