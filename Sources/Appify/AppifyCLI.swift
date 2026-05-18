@@ -14,15 +14,11 @@ struct AppifyCLI {
     }
 
     static func run(args: CLIArgs) throws {
-        // Show interactive setup UI
         guard let setup = runSetupUI(url: args.url, name: args.name) else {
             fputs("UI failed to launch.\n", stderr)
             exit(1)
         }
-        guard !setup.cancelled else {
-            print("Cancelled.")
-            exit(0)
-        }
+        guard !setup.cancelled else { print("Cancelled."); exit(0) }
 
         print("")
         print("  Appify v1.2.0")
@@ -34,10 +30,7 @@ struct AppifyCLI {
         print("  Output: \(setup.outputDir)")
         print("")
 
-        guard let launcherBinary = Bundle.module.url(
-            forResource: "Resources/Launcher",
-            withExtension: nil
-        ) else {
+        guard let launcherBinary = Bundle.module.url(forResource: "Resources/Launcher", withExtension: nil) else {
             throw AppifyError.launcherNotFound
         }
 
@@ -51,30 +44,34 @@ struct AppifyCLI {
             if iconPath.pathExtension.lowercased() == "icns" {
                 iconURL = iconPath
             } else {
-                print("  Converting icon to .icns...")
+                print("  Converting custom icon to .icns...")
                 let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
                 try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
                 defer { try? fm.removeItem(at: tempDir) }
                 iconURL = IconConverter.convertPngToIcns(pngPath: iconPath, tempDir: tempDir)
-                print(iconURL != nil ? "  Icon converted." : "  Icon conversion failed, continuing without icon.")
+                print(iconURL != nil ? "  Icon converted." : "  Icon conversion failed.")
             }
         } else {
-            print("  Fetching favicon...")
-            if let data = FaviconFetcher.fetch(from: setup.url) {
-                print("  Converting to .icns...")
+            print("  Fetching icon for \(setup.url)...")
+            if let (data, source) = FaviconFetcher.fetchWithSource(from: setup.url) {
+                print("  Fetched \(data.count) bytes from: \(source)")
+                let header = data.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
+                print("  Magic bytes: \(header)")
+
                 let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
                 try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
                 defer { try? fm.removeItem(at: tempDir) }
+
+                print("  Converting to .icns...")
                 iconURL = IconConverter.convertToIcns(pngData: data, in: tempDir)
-                print(iconURL != nil ? "  Icon ready." : "  Could not convert favicon, continuing without icon.")
+                print(iconURL != nil ? "  Icon ready." : "  Conversion returned nil — check magic bytes above.")
             } else {
-                print("  Could not fetch favicon, continuing without icon.")
+                print("  Fetch returned nil — all candidates failed.")
             }
         }
 
         print("  Building .app bundle...")
 
-        // Merge UI result back into a CLIArgs-compatible struct for BundleBuilder
         let finalArgs = CLIArgs(
             url: setup.url,
             name: setup.name,
@@ -99,7 +96,5 @@ struct AppifyCLI {
 
 enum AppifyError: Error, LocalizedError {
     case launcherNotFound
-    var errorDescription: String? {
-        "Launcher binary not found. Run './Scripts/install.sh' to rebuild."
-    }
+    var errorDescription: String? { "Launcher binary not found. Run './Scripts/install.sh' to rebuild." }
 }
