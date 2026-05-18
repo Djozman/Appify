@@ -145,6 +145,13 @@ public class SetupWindowController: NSWindowController {
         return lbl
     }
 
+    /// Schedule a UI update that fires even while NSApp.runModal is spinning.
+    private func updateUI(_ block: @escaping () -> Void) {
+        let rl = CFRunLoopGetMain()
+        CFRunLoopPerformBlock(rl, CFRunLoopMode.commonModes.rawValue, block)
+        CFRunLoopWakeUp(rl)
+    }
+
     private func scheduleFaviconFetch(for urlString: String, debounce: Bool = true) {
         fetchToken &+= 1
         let token = fetchToken
@@ -155,7 +162,7 @@ public class SetupWindowController: NSWindowController {
 
             let result = FaviconFetcher.fetchWithSource(from: urlString)
 
-            DispatchQueue.main.async { [weak self] in
+            self.updateUI { [weak self] in
                 guard let self, self.fetchToken == token else { return }
                 self.faviconData = result?.0
                 if self.iconLabel.stringValue == "Fetching..." {
