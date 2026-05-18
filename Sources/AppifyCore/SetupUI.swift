@@ -153,9 +153,13 @@ public class SetupWindowController: NSWindowController {
         CFRunLoopWakeUp(rl)
     }
 
-    private func makeComposite(from data: Data, size: CGFloat) -> (NSImage, Data)? {
+    /// Render favicon onto grey card at 1024x1024. Returns the PNG bytes.
+    /// The preview is produced by downscaling this same PNG — single render, single source.
+    private func makeComposite1024(from data: Data) -> Data? {
         guard let src = NSImage(data: data) else { return nil }
+        let size: CGFloat = 1024
         let contentFraction: CGFloat = 0.75
+        // Force highest-res rep
         let rep = src.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
         let pw = rep.flatMap { $0.pixelsWide > 0 ? CGFloat($0.pixelsWide) : nil } ?? src.size.width
         let ph = rep.flatMap { $0.pixelsHigh > 0 ? CGFloat($0.pixelsHigh) : nil } ?? src.size.height
@@ -166,19 +170,47 @@ public class SetupWindowController: NSWindowController {
         let drawH = srcSize.height * scale
         let drawX = (size - drawW) / 2
         let drawY = (size - drawH) / 2
-        let result = NSImage(size: NSSize(width: size, height: size))
-        result.lockFocus()
+
+        guard let bitmapRep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(size), pixelsHigh: Int(size),
+            bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return nil }
+        bitmapRep.size = NSSize(width: size, height: size)
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmapRep)
         NSColor(white: 0.94, alpha: 1.0).setFill()
         NSRect(x: 0, y: 0, width: size, height: size).fill()
-        src.draw(in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH),
-                 from: NSRect(origin: .zero, size: srcSize),
+        // Draw from the highest-res rep directly, bypassing NSImage size-based rep selection
+        if let hiRep = rep {
+            hiRep.draw(in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH),
+                       from: NSRect(origin: .zero, size: NSSize(width: pw, height: ph)),
+                       operation: .sourceOver, fraction: 1.0,
+                       respectFlipped: true, hints: [.interpolation: NSNumber(value: NSImageInterpolation.high.rawValue)])
+        } else {
+            src.draw(in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH),
+                     from: NSRect(origin: .zero, size: srcSize),
+                     operation: .sourceOver, fraction: 1.0)
+        }
+        NSGraphicsContext.restoreGraphicsState()
+
+        return bitmapRep.representation(using: .png, properties: [:])
+    }
+
+    /// Downscale a PNG to an NSImage at the given point size. Used for preview only.
+    private func downscale(png: Data, to size: CGFloat) -> NSImage? {
+        guard let src = NSImage(data: png) else { return nil }
+        let result = NSImage(size: NSSize(width: size, height: size))
+        result.lockFocus()
+        src.draw(in: NSRect(x: 0, y: 0, width: size, height: size),
+                 from: NSRect(origin: .zero, size: src.size),
                  operation: .sourceOver, fraction: 1.0)
         result.unlockFocus()
-        guard let cgImage = result.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-        let bitmapRep = NSBitmapImageRep(cgImage: cgImage)
-        bitmapRep.size = NSSize(width: size, height: size)
-        guard let png = bitmapRep.representation(using: .png, properties: [:]) else { return nil }
-        return (result, png)
+        return result
     }
 
     private func scheduleFaviconFetch(for urlString: String, debounce: Bool = true) {
@@ -191,8 +223,11 @@ public class SetupWindowController: NSWindowController {
             var previewImg: NSImage? = nil
             var png1024: Data? = nil
             if let data = fetched?.0 {
-                if let (img, _) = self.makeComposite(from: data, size: 80) { previewImg = img }
-                if let (_, png) = self.makeComposite(from: data, size: 1024) { png1024 = png }
+                // One render at 1024 — preview is a downscale of that exact PNG
+                if let png = self.makeComposite1024(from: data) {
+                    png1024 = png
+                    previewImg = self.downscale(png: png, to: 80)
+                }
             }
             self.updateUI { [weak self] in
                 guard let self, self.fetchToken == token else { return }
