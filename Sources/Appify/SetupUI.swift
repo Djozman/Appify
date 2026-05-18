@@ -1,11 +1,10 @@
 import Cocoa
 import Foundation
 
-// Result returned from the setup wizard
 struct SetupResult {
     let url: String
     let name: String
-    let iconPath: String?   // nil = use favicon
+    let iconPath: String?
     let width: Int
     let height: Int
     let outputDir: String
@@ -14,7 +13,6 @@ struct SetupResult {
 }
 
 class SetupWindowController: NSWindowController {
-    // Inputs
     private let urlField      = NSTextField()
     private let nameField     = NSTextField()
     private let iconImageView = NSImageView()
@@ -38,6 +36,7 @@ class SetupWindowController: NSWindowController {
         )
         win.title = "Appify — Create App"
         win.center()
+        win.level = .floating   // ensure it appears above terminal
         self.init(window: win)
         buildUI(url: url, name: name)
     }
@@ -46,7 +45,6 @@ class SetupWindowController: NSWindowController {
         guard let content = window?.contentView else { return }
         content.wantsLayer = true
 
-        // --- Icon preview (left column) ---
         iconImageView.frame = NSRect(x: 24, y: 260, width: 80, height: 80)
         iconImageView.imageScaling = .scaleProportionallyUpOrDown
         iconImageView.wantsLayer = true
@@ -75,7 +73,6 @@ class SetupWindowController: NSWindowController {
         resetBtn.font = .systemFont(ofSize: 11)
         content.addSubview(resetBtn)
 
-        // --- Right column fields ---
         let rightX: CGFloat = 140
         let fieldW: CGFloat = 316
 
@@ -112,17 +109,15 @@ class SetupWindowController: NSWindowController {
         menuBarCheck.frame = NSRect(x: rightX, y: 200, width: fieldW, height: 22)
         content.addSubview(menuBarCheck)
 
-        // --- Divider ---
         let divider = NSBox()
         divider.boxType = .separator
         divider.frame = NSRect(x: 20, y: 60, width: 440, height: 1)
         content.addSubview(divider)
 
-        // --- Buttons ---
         let cancelBtn = NSButton(title: "Cancel", target: self, action: #selector(cancel))
         cancelBtn.frame = NSRect(x: 296, y: 20, width: 80, height: 32)
         cancelBtn.bezelStyle = .rounded
-        cancelBtn.keyEquivalent = String(UnicodeScalar(27)!)  // Escape
+        cancelBtn.keyEquivalent = String(UnicodeScalar(27)!)
         content.addSubview(cancelBtn)
 
         let createBtn = NSButton(title: "Create App", target: self, action: #selector(create))
@@ -132,7 +127,6 @@ class SetupWindowController: NSWindowController {
         createBtn.highlight(true)
         content.addSubview(createBtn)
 
-        // Trigger initial favicon fetch
         scheduleFaviconFetch(for: url)
     }
 
@@ -144,8 +138,6 @@ class SetupWindowController: NSWindowController {
         view.addSubview(lbl)
         return lbl
     }
-
-    // MARK: - Favicon
 
     private func scheduleFaviconFetch(for urlString: String) {
         fetchWorkItem?.cancel()
@@ -173,15 +165,12 @@ class SetupWindowController: NSWindowController {
         let raw = urlField.stringValue.trimmingCharacters(in: .whitespaces)
         guard !raw.isEmpty else { return }
         let url = raw.hasPrefix("http") ? raw : "https://" + raw
-        // Auto-fill name from hostname if name field is empty
         if nameField.stringValue.isEmpty, let host = URL(string: url)?.host {
             let cleaned = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
             nameField.stringValue = cleaned.components(separatedBy: ".").first?.capitalized ?? cleaned
         }
         scheduleFaviconFetch(for: url)
     }
-
-    // MARK: - Icon
 
     @objc private func chooseIcon() {
         let panel = NSOpenPanel()
@@ -217,22 +206,15 @@ class SetupWindowController: NSWindowController {
         NSColor.controlAccentColor.withAlphaComponent(0.15).setFill()
         let path = NSBezierPath(roundedRect: NSRect(origin: .zero, size: size), xRadius: 16, yRadius: 16)
         path.fill()
-        let globe = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
-        globe?.draw(in: NSRect(x: 16, y: 16, width: 48, height: 48))
+        NSImage(systemSymbolName: "globe", accessibilityDescription: nil)?
+            .draw(in: NSRect(x: 16, y: 16, width: 48, height: 48))
         img.unlockFocus()
         return img
     }
 
-    // MARK: - Actions
-
     @objc private func cancel() {
-        result = SetupResult(
-            url: "", name: "", iconPath: nil,
-            width: 1280, height: 800,
-            outputDir: "/Applications",
-            menuBar: false,
-            cancelled: true
-        )
+        result = SetupResult(url: "", name: "", iconPath: nil, width: 1280, height: 800,
+                             outputDir: "/Applications", menuBar: false, cancelled: true)
         NSApp.stopModal()
         window?.close()
     }
@@ -249,9 +231,7 @@ class SetupWindowController: NSWindowController {
             return
         }
         result = SetupResult(
-            url: url,
-            name: name,
-            iconPath: customIconPath,
+            url: url, name: name, iconPath: customIconPath,
             width: Int(widthField.stringValue) ?? 1280,
             height: Int(heightField.stringValue) ?? 800,
             outputDir: "/Applications",
@@ -265,9 +245,6 @@ class SetupWindowController: NSWindowController {
 // MARK: - Entry point
 
 func runSetupUI(url: String, name: String) -> SetupResult? {
-    // Must run on main thread
-    var setupResult: SetupResult? = nil
-
     let app = NSApplication.shared
     app.setActivationPolicy(.regular)
 
@@ -280,8 +257,14 @@ func runSetupUI(url: String, name: String) -> SetupResult? {
 
     let wc = SetupWindowController(url: url, name: name)
     wc.showWindow(nil)
-    app.activate(ignoringOtherApps: true)
+
+    // Force the window to the front even when launched from Terminal
+    DispatchQueue.main.async {
+        NSApp.activate(ignoringOtherApps: true)
+        wc.window?.makeKeyAndOrderFront(nil)
+        wc.window?.orderFrontRegardless()
+    }
+
     app.runModal(for: wc.window!)
-    setupResult = wc.result
-    return setupResult
+    return wc.result
 }
