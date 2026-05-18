@@ -151,23 +151,18 @@ public class SetupWindowController: NSWindowController {
         CFRunLoopWakeUp(rl)
     }
 
-    /// Composite favicon into a preview matching what IconConverter produces.
-    /// Transparent images: white background, logo at 75% fill (same as squarePadded).
+    /// Composite favicon into a preview matching what IconConverter produces:
+    /// macOS-style grey card (white: 0.94), logo at 75% fill.
     private func makePreview(from data: Data) -> NSImage? {
         guard let src = NSImage(data: data) else { return nil }
         let size: CGFloat = 80
-        let transparent = hasTransparency(data)
-        let contentFraction: CGFloat = transparent ? 0.75 : 1.0
+        let contentFraction: CGFloat = 0.75
         let pad = size * (1.0 - contentFraction) / 2
         let result = NSImage(size: NSSize(width: size, height: size))
         result.lockFocus()
-        if transparent {
-            NSColor.white.setFill()
-            NSRect(x: 0, y: 0, width: size, height: size).fill()
-        } else {
-            NSColor.clear.setFill()
-            NSRect(x: 0, y: 0, width: size, height: size).fill()
-        }
+        // Same grey as IconConverter.squarePadded
+        NSColor(white: 0.94, alpha: 1.0).setFill()
+        NSRect(x: 0, y: 0, width: size, height: size).fill()
         let rep = src.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
         let pw = rep.flatMap { $0.pixelsWide > 0 ? CGFloat($0.pixelsWide) : nil } ?? src.size.width
         let ph = rep.flatMap { $0.pixelsHigh > 0 ? CGFloat($0.pixelsHigh) : nil } ?? src.size.height
@@ -182,24 +177,6 @@ public class SetupWindowController: NSWindowController {
                  operation: .sourceOver, fraction: 1.0)
         result.unlockFocus()
         return result
-    }
-
-    private func hasTransparency(_ data: Data) -> Bool {
-        let bytes = [UInt8](data.prefix(4))
-        if bytes.starts(with: [0xFF, 0xD8]) { return false }
-        guard let image = NSImage(data: data),
-              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return false }
-        let ai = cgImage.alphaInfo
-        guard ai != .none, ai != .noneSkipFirst, ai != .noneSkipLast else { return false }
-        let side = 32; let bpr = side * 4
-        var pixels = [UInt8](repeating: 0, count: side * bpr)
-        guard let ctx = CGContext(data: &pixels, width: side, height: side,
-                                  bitsPerComponent: 8, bytesPerRow: bpr,
-                                  space: CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
-        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: side, height: side))
-        for i in stride(from: 3, to: pixels.count, by: 4) { if pixels[i] < 240 { return true } }
-        return false
     }
 
     private func scheduleFaviconFetch(for urlString: String, debounce: Bool = true) {

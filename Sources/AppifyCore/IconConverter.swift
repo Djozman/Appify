@@ -149,9 +149,9 @@ public struct IconConverter {
         return hasWhiteFill && !hasBackground
     }
 
-    /// Composite the image onto a square canvas.
-    /// Transparent sources get a white rounded-rect background (macOS icon style).
-    /// contentFraction=0.75 — logo fills 75% of the card, leaving a clean white rim.
+    /// Composite the image onto a macOS-style grey card (NSColor white:0.94).
+    /// Always applies the card — favicon icons always get the squircle background.
+    /// Logo fills 75% of the canvas, leaving a clean rim.
     private static func squarePadded(_ image: NSImage, size: Int, sourceData: Data? = nil) -> NSImage {
         let canvas = CGFloat(size)
         let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
@@ -159,8 +159,9 @@ public struct IconConverter {
         let h = rep.flatMap { $0.pixelsHigh > 0 ? CGFloat($0.pixelsHigh) : nil } ?? image.size.height
         let srcSize = CGSize(width: max(w, 1), height: max(h, 1))
 
-        let transparent = sourceData.map { hasTransparency($0) } ?? false
-        let contentFraction: CGFloat = transparent ? 0.75 : 0.85
+        // Always apply card background for favicon-sourced icons.
+        // User-supplied images (convertPngToIcns) also get the card.
+        let contentFraction: CGFloat = 0.75
         let maxContent = canvas * contentFraction
         let scale = min(maxContent / srcSize.width, maxContent / srcSize.height)
         let drawW = srcSize.width * scale
@@ -170,15 +171,11 @@ public struct IconConverter {
 
         let result = NSImage(size: NSSize(width: canvas, height: canvas))
         result.lockFocus()
-        if transparent {
-            NSColor.white.setFill()
-            let r = canvas * 0.22
-            NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: canvas, height: canvas),
-                         xRadius: r, yRadius: r).fill()
-        } else {
-            NSColor.clear.setFill()
-            NSRect(x: 0, y: 0, width: canvas, height: canvas).fill()
-        }
+        // macOS-style light grey card background
+        NSColor(white: 0.94, alpha: 1.0).setFill()
+        let r = canvas * 0.22
+        NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: canvas, height: canvas),
+                     xRadius: r, yRadius: r).fill()
         image.draw(in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH),
                    from: NSRect(origin: .zero, size: srcSize),
                    operation: .sourceOver, fraction: 1.0)
