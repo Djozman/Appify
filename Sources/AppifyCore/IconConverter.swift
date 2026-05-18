@@ -5,71 +5,83 @@ public struct IconConverter {
 
     // MARK: - Public API
 
+    /// Produce the same processed NSImage that `convertToIcns` would embed —
+    /// so the SetupUI preview is pixel-identical to the final .app icon.
+    public static func previewImage(for faviconData: Data, size: CGFloat = 80) -> NSImage? {
+        guard let processed = processedImage(for: faviconData) else { return nil }
+        let preview = NSImage(size: NSSize(width: size, height: size))
+        preview.lockFocus()
+        processed.draw(in: NSRect(x: 0, y: 0, width: size, height: size),
+                       from: .zero, operation: .copy, fraction: 1.0)
+        preview.unlockFocus()
+        return preview
+    }
+
     /// Convert arbitrary image data (PNG, JPG, ICO, SVG, etc.) to .icns.
     /// Used for user-supplied custom icons only.
     public static func convertToIcns(pngData: Data, in tempDir: URL) -> URL? {
-        let ext = imageExtension(for: pngData)
-
-        if ext == "svg" {
-            guard let image = NSImage(data: pngData) else { return nil }
-            let rasterized = rasterizeSVG(image, svgData: pngData, size: 1024)
-            guard let squaredData = toPNG(rasterized) else { return nil }
-            let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
-            do { try squaredData.write(to: squaredPath) } catch { return nil }
-            return buildIcns(from: squaredPath, tempDir: tempDir)
-        }
-
-        if ext == "ico" {
-            let srcPath = tempDir.appendingPathComponent("icon_src.ico")
-            do { try pngData.write(to: srcPath) } catch { return nil }
-            if let image = NSImage(contentsOf: srcPath) {
-                let squared = squarePadded(image, size: 1024)
-                guard let squaredData = toPNG(squared) else { return nil }
-                let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
-                do { try squaredData.write(to: squaredPath) } catch { return nil }
-                return buildIcns(from: squaredPath, tempDir: tempDir)
-            }
-            let converted = tempDir.appendingPathComponent("icon_converted.png")
-            if run("/usr/bin/sips", ["-s", "format", "png", srcPath.path, "--out", converted.path]),
-               let image = NSImage(contentsOf: converted) {
-                let squared = squarePadded(image, size: 1024)
-                guard let squaredData = toPNG(squared) else { return nil }
-                let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
-                do { try squaredData.write(to: squaredPath) } catch { return nil }
-                return buildIcns(from: squaredPath, tempDir: tempDir)
-            }
-            return nil
-        }
-
-        let srcPath = tempDir.appendingPathComponent("icon_src.\(ext)")
-        do { try pngData.write(to: srcPath) } catch { return nil }
-
-        let pngPath: URL
-        if ext == "png" {
-            pngPath = srcPath
-        } else {
-            let converted = tempDir.appendingPathComponent("icon_converted.png")
-            if run("/usr/bin/sips", ["-s", "format", "png", srcPath.path, "--out", converted.path]) {
-                pngPath = converted
-            } else if let image = NSImage(data: pngData), let data = toPNG(image) {
-                let fallback = tempDir.appendingPathComponent("icon_fallback.png")
-                do { try data.write(to: fallback) } catch { return nil }
-                pngPath = fallback
-            } else {
-                return nil
-            }
-        }
-
-        guard let image = NSImage(contentsOf: pngPath) else { return nil }
-        let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
-        let pw = rep.flatMap { $0.pixelsWide > 0 ? $0.pixelsWide : nil } ?? Int(image.size.width)
-        let ph = rep.flatMap { $0.pixelsHigh > 0 ? $0.pixelsHigh : nil } ?? Int(image.size.height)
-        let ratio = Double(pw) / Double(max(ph, 1))
-        let finalImage = ratio > 1.3 ? centerCrop(image, pixelW: pw, pixelH: ph) : squarePadded(image, size: 1024)
-        guard let squaredData = toPNG(finalImage) else { return nil }
+        guard let processed = processedImage(for: pngData) else { return nil }
+        guard let squaredData = toPNG(processed) else { return nil }
         let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
         do { try squaredData.write(to: squaredPath) } catch { return nil }
         return buildIcns(from: squaredPath, tempDir: tempDir)
+    }
+
+    // MARK: - Core image processing (shared by preview & icns)
+
+    /// Apply the same compositing (background, padding, rounding, cropping)
+    /// that `convertToIcns` uses, returning a 1024x1024 NSImage ready for
+    /// either preview downscaling or PNG to .icns conversion.
+    private static func processedImage(for data: Data) -> NSImage? {
+        let ext = imageExtension(for: data)
+        let size = 1024
+
+        switch ext {
+        case "svg":
+            guard let image = NSImage(data: data) else { return nil }
+            return rasterizeSVG(image, svgData: data, size: size)
+
+        case "ico":
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("appify_preview_\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: tmp) }
+
+            let srcPath = tmp.appendingPathComponent("icon.ico")
+            do { try data.write(to: srcPath) } catch { return nil }
+
+            // Try NSImage first, then sips fallback
+            if let image = NSImage(contentsOf: srcPath) {
+                return squarePadded(image, size: size)
+            }
+            let converted = tmp.appendingPathComponent("icon.png")
+            if run("/usr/bin/sips", ["-s", "format", "png", srcPath.path, "--out", converted.path]),
+               let image = NSImage(contentsOf: converted) {
+                return squarePadded(image, size: size)
+            }
+            return nil
+
+        default:
+            // PNG, JPG, GIF, TIFF, BMP, WebP — NSImage can open these directly
+            guard let image = NSImage(data: data) else { return nil }
+            let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
+            let pw = rep.flatMap { $0.pixelsWide > 0 ? $0.pixelsWide : nil } ?? Int(image.size.width)
+            let ph = rep.flatMap { $0.pixelsHigh > 0 ? $0.pixelsHigh : nil } ?? Int(image.size.height)
+            let ratio = Double(pw) / Double(max(ph, 1))
+            if ratio > 1.3 {
+                return centerCrop(image, pixelW: pw, pixelH: ph)
+            } else {
+                return squarePadded(image, size: size)
+            }
+        }
+    }
+
+    /// Return the fully composited 1024x1024 PNG data — same as what
+    /// `convertToIcns` feeds into iconutil.  Used by SetupUI so the
+    /// preview matches the final .app icon pixel-for-pixel.
+    public static func processedPNG(for faviconData: Data) -> Data? {
+        guard let processed = processedImage(for: faviconData) else { return nil }
+        return toPNG(processed)
     }
 
     /// Build .icns from an already-correct 1024x1024 PNG (e.g. the composited preview).

@@ -251,12 +251,16 @@ public class SetupWindowController: NSWindowController {
                 }
                 return
             }
-            let png1024 = Self.scaledPNG(faviconData: faviconData, pixels: 1024)
+            // Use the same compositing pipeline as the final .app icon so the
+            // preview is pixel-identical to what ends up in the built bundle.
+            let processed = IconConverter.processedPNG(for: faviconData)
+                ?? Self.scaledPNG(faviconData: faviconData, pixels: 1024)
             self.updateUI { [weak self] in
                 guard let self, self.fetchToken == token else { return }
-                self.previewPNG = png1024
+                self.previewPNG = processed
                 guard self.iconLabel.stringValue == "Fetching...", self.customIconPath == nil else { return }
-                let previewImg = png1024.flatMap { NSImage(data: $0) }
+                let previewImg = IconConverter.previewImage(for: faviconData)
+                    ?? processed.flatMap { NSImage(data: $0) }
                     ?? NSImage(data: faviconData)
                 if let img = previewImg {
                     self.iconContainer.image = img
