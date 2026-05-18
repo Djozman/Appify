@@ -204,20 +204,22 @@ public class SetupWindowController: NSWindowController {
                 }
                 return
             }
-            // Build 1024px composite for icns
+            // Build composited 1024px PNG — used for both preview AND icns
             let png1024 = Self.compositePNG(faviconData: faviconData, pixels: 1024)
             self.updateUI { [weak self] in
                 guard let self, self.fetchToken == token else { return }
                 self.previewPNG = png1024
-                if self.iconLabel.stringValue == "Fetching...", self.customIconPath == nil {
-                    // Show raw favicon data in preview — NSImage handles all formats correctly on main thread
-                    if let img = NSImage(data: faviconData) {
-                        self.iconImageView.image = img
-                        self.iconLabel.stringValue = "Auto (favicon)"
-                    } else {
-                        self.iconImageView.image = self.defaultIcon()
-                        self.iconLabel.stringValue = "No favicon found"
-                    }
+                guard self.iconLabel.stringValue == "Fetching...", self.customIconPath == nil else { return }
+                // Show composite in preview so it matches the Dock icon exactly.
+                // Fall back to raw data if CG composite failed (rare format edge case).
+                let previewImg = png1024.flatMap { NSImage(data: $0) }
+                    ?? NSImage(data: faviconData)
+                if let img = previewImg {
+                    self.iconImageView.image = img
+                    self.iconLabel.stringValue = "Auto (favicon)"
+                } else {
+                    self.iconImageView.image = self.defaultIcon()
+                    self.iconLabel.stringValue = "No favicon found"
                 }
             }
         }
