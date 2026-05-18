@@ -1,16 +1,16 @@
 #!/bin/bash
-# Dev loop: build release and show usage
 set -e
-
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-echo "Building..."
-swift build -c release
+echo "Building Launcher..."
+swift build -c release --product Launcher
+mkdir -p Sources/Appify/Resources
+cp .build/release/Launcher Sources/Appify/Resources/Launcher
 
-BINARY=".build/release/Appify"
+echo "Building Appify..."
+swift build -c release --product Appify
+
 echo ""
-echo "Build succeeded. Binary at: $BINARY"
-echo ""
-echo "Example:"
-echo "  $BINARY https://monochrome.tf \"Monochrome\""
+echo "Build complete. Example:"
+echo "  .build/release/Appify https://monochrome.tf \"Monochrome\""

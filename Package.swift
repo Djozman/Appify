@@ -7,9 +7,18 @@ let package = Package(
         .macOS(.v13)
     ],
     targets: [
+        // Tiny native WKWebView app — gets embedded into every .app Appify creates
+        .executableTarget(
+            name: "Launcher",
+            path: "Sources/Launcher"
+        ),
+        // The Appify CLI
         .executableTarget(
             name: "Appify",
-            path: "Sources/Appify"
+            path: "Sources/Appify",
+            resources: [
+                .copy("Resources")
+            ]
         )
     ]
 )

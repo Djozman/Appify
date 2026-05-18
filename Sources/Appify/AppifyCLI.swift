@@ -7,14 +7,14 @@ struct AppifyCLI {
             let args = try parseArgs(CommandLine.arguments)
             try run(args: args)
         } catch {
-            fputs("✗ \(error.localizedDescription)\n", stderr)
+            fputs("\u2717 \(error.localizedDescription)\n", stderr)
             exit(1)
         }
     }
 
     static func run(args: CLIArgs) throws {
         print("")
-        print("  Appify v1.0.0")
+        print("  Appify v1.1.0")
         print("  ─────────────────────────────────")
         print("  App   : \(args.name)")
         print("  URL   : \(args.url)")
@@ -23,12 +23,15 @@ struct AppifyCLI {
         print("  Output: \(args.outputDir)")
         print("")
 
-        let fm = FileManager.default
+        guard let launcherBinary = Bundle.module.url(
+            forResource: "Resources/Launcher",
+            withExtension: nil
+        ) else {
+            throw AppifyError.launcherNotFound
+        }
 
-        try fm.createDirectory(
-            atPath: args.outputDir,
-            withIntermediateDirectories: true
-        )
+        let fm = FileManager.default
+        try fm.createDirectory(atPath: args.outputDir, withIntermediateDirectories: true)
 
         var iconURL: URL? = nil
 
@@ -45,7 +48,7 @@ struct AppifyCLI {
                 print(iconURL != nil ? "  ✓ Icon converted" : "  ⚠ Icon conversion failed, continuing without icon")
             }
         } else if !args.noFavicon {
-            print("  Fetching favicon from \(args.url)...")
+            print("  Fetching favicon...")
             if let data = FaviconFetcher.fetch(from: args.url) {
                 print("  Converting to .icns...")
                 let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -59,7 +62,7 @@ struct AppifyCLI {
         }
 
         print("  Building .app bundle...")
-        let builder = BundleBuilder(args: args)
+        let builder = BundleBuilder(args: args, launcherBinary: launcherBinary)
         let appURL = try builder.build(iconURL: iconURL)
 
         print("")
@@ -68,8 +71,12 @@ struct AppifyCLI {
         print("  Launch:")
         print("    open \"\(appURL.path)\"")
         print("")
-        print("  Requires pywebview:")
-        print("    pip install pywebview")
-        print("")
+    }
+}
+
+enum AppifyError: Error, LocalizedError {
+    case launcherNotFound
+    var errorDescription: String? {
+        "Launcher binary not found. Run './Scripts/install.sh' to rebuild."
     }
 }

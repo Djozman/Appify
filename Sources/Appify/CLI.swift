@@ -42,26 +42,16 @@ func parseArgs(_ args: [String]) throws -> CLIArgs {
     while i < args.count {
         let arg = args[i]
         switch arg {
-        case "--width":
-            i += 1; width = Int(args[i]) ?? 1280
-        case "--height":
-            i += 1; height = Int(args[i]) ?? 800
-        case "--icon":
-            i += 1; iconPath = args[i]
-        case "--output":
-            i += 1; outputDir = args[i]
-        case "--no-favicon":
-            noFavicon = true
-        case "--menu-bar":
-            menuBar = true
-        case "--help", "-h":
-            printHelp(); exit(0)
-        case "--version":
-            print("appify v1.0.0"); exit(0)
+        case "--width":    i += 1; width = Int(args[i]) ?? 1280
+        case "--height":   i += 1; height = Int(args[i]) ?? 800
+        case "--icon":     i += 1; iconPath = args[i]
+        case "--output":   i += 1; outputDir = args[i]
+        case "--no-favicon": noFavicon = true
+        case "--menu-bar":   menuBar = true
+        case "--help", "-h": printHelp(); exit(0)
+        case "--version":    print("appify v1.1.0"); exit(0)
         default:
-            if arg.hasPrefix("--") {
-                throw CLIError.unknownFlag(arg)
-            }
+            if arg.hasPrefix("--") { throw CLIError.unknownFlag(arg) }
             positional.append(arg)
         }
         i += 1
@@ -70,21 +60,11 @@ func parseArgs(_ args: [String]) throws -> CLIArgs {
     guard positional.count >= 2 else { throw CLIError.missingArguments }
 
     var url = positional[0]
-    if !url.hasPrefix("http://") && !url.hasPrefix("https://") {
-        url = "https://" + url
-    }
+    if !url.hasPrefix("http://") && !url.hasPrefix("https://") { url = "https://" + url }
     guard URL(string: url) != nil else { throw CLIError.invalidURL(url) }
 
-    return CLIArgs(
-        url: url,
-        name: positional[1],
-        width: width,
-        height: height,
-        iconPath: iconPath,
-        outputDir: outputDir,
-        noFavicon: noFavicon,
-        menuBar: menuBar
-    )
+    return CLIArgs(url: url, name: positional[1], width: width, height: height,
+                   iconPath: iconPath, outputDir: outputDir, noFavicon: noFavicon, menuBar: menuBar)
 }
 
 func printHelp() {
