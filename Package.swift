@@ -12,13 +12,25 @@ let package = Package(
             name: "Launcher",
             path: "Sources/Launcher"
         ),
-        // The Appify CLI
-        .executableTarget(
-            name: "Appify",
-            path: "Sources/Appify",
+        // Shared library: all logic except entry points
+        .target(
+            name: "AppifyCore",
+            path: "Sources/AppifyCore",
             resources: [
                 .copy("Resources")
             ]
+        ),
+        // CLI: appify <url>
+        .executableTarget(
+            name: "Appify",
+            dependencies: ["AppifyCore"],
+            path: "Sources/Appify"
+        ),
+        // GUI: double-click .app
+        .executableTarget(
+            name: "AppifyGUI",
+            dependencies: ["AppifyCore"],
+            path: "Sources/AppifyGUI"
         )
     ]
 )
