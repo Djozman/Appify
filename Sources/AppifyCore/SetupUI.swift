@@ -154,36 +154,33 @@ public class SetupWindowController: NSWindowController {
     }
 
     /// Pure CoreGraphics — thread-safe.
-    /// White card, favicon scaled to 80% fill, centered.
-    private static func compositePNG(faviconData: Data, pixels: Int) -> Data? {
+    /// Rescales favicon to 1024x1024 with transparent background.
+    /// macOS iconutil + Dock apply the squircle mask automatically.
+    private static func scaledPNG(faviconData: Data, pixels: Int) -> Data? {
         guard let src = CGImageSourceCreateWithData(faviconData as CFData, nil),
               let cgSrc = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
-        let size = pixels
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         guard let ctx = CGContext(
-            data: nil, width: size, height: size,
+            data: nil, width: pixels, height: pixels,
             bitsPerComponent: 8, bytesPerRow: 0,
             space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
 
-        // White background (matches macOS icon card look)
-        ctx.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
-        ctx.fill(CGRect(x: 0, y: 0, width: size, height: size))
+        // Transparent background — let the favicon fill the full canvas
+        ctx.clear(CGRect(x: 0, y: 0, width: pixels, height: pixels))
 
-        // Scale favicon to 80% of canvas, centered
+        // Scale to fill full canvas, maintaining aspect ratio
         let srcW = CGFloat(cgSrc.width)
         let srcH = CGFloat(cgSrc.height)
-        let maxSide = CGFloat(size) * 0.80
-        let scale = min(maxSide / max(srcW, 1), maxSide / max(srcH, 1))
+        let scale = min(CGFloat(pixels) / max(srcW, 1), CGFloat(pixels) / max(srcH, 1))
         let drawW = srcW * scale
         let drawH = srcH * scale
-        let drawX = (CGFloat(size) - drawW) / 2
-        let drawY = (CGFloat(size) - drawH) / 2
+        let drawX = (CGFloat(pixels) - drawW) / 2
+        let drawY = (CGFloat(pixels) - drawH) / 2
 
-        // CG origin is bottom-left; flip to draw image right-side up
         ctx.saveGState()
-        ctx.translateBy(x: 0, y: CGFloat(size))
+        ctx.translateBy(x: 0, y: CGFloat(pixels))
         ctx.scaleBy(x: 1, y: -1)
         ctx.draw(cgSrc, in: CGRect(x: drawX, y: drawY, width: drawW, height: drawH))
         ctx.restoreGState()
@@ -212,8 +209,8 @@ public class SetupWindowController: NSWindowController {
                 }
                 return
             }
-            // Composite once — used for both preview and icns
-            let png1024 = Self.compositePNG(faviconData: faviconData, pixels: 1024)
+            // Scale to 1024px PNG — used for both preview and icns
+            let png1024 = Self.scaledPNG(faviconData: faviconData, pixels: 1024)
             self.updateUI { [weak self] in
                 guard let self, self.fetchToken == token else { return }
                 self.previewPNG = png1024
