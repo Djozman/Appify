@@ -36,7 +36,6 @@ struct AppifyCLI {
 
         let fm = FileManager.default
         try fm.createDirectory(atPath: setup.outputDir, withIntermediateDirectories: true)
-
         let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
@@ -51,31 +50,28 @@ struct AppifyCLI {
                 iconURL = IconConverter.convertPngToIcns(pngPath: iconPath, tempDir: tempDir)
                 print(iconURL != nil ? "  Icon converted." : "  Icon conversion failed.")
             }
-        } else if let faviconData = setup.faviconData {
-            // Use the exact data that was shown in the preview — no re-fetch
-            print("  Converting favicon to .icns...")
-            iconURL = IconConverter.convertToIcns(pngData: faviconData, in: tempDir)
-            print(iconURL != nil ? "  Icon ready." : "  Conversion failed.")
+        } else if let png = setup.previewPNG {
+            // Write the exact composited PNG the user saw in the preview, then iconutil it
+            print("  Building .icns from preview...")
+            let pngPath = tempDir.appendingPathComponent("preview_1024.png")
+            try png.write(to: pngPath)
+            iconURL = IconConverter.buildIcnsFromPNG(pngPath: pngPath, tempDir: tempDir)
+            print(iconURL != nil ? "  Icon ready." : "  .icns build failed.")
         } else {
             print("  No icon available, continuing without.")
         }
 
         print("  Building .app bundle...")
-
         let finalArgs = CLIArgs(
-            url: setup.url,
-            name: setup.name,
-            width: setup.width,
-            height: setup.height,
+            url: setup.url, name: setup.name,
+            width: setup.width, height: setup.height,
             iconPath: setup.iconPath,
             outputDir: setup.outputDir,
             noFavicon: setup.iconPath != nil,
             menuBar: setup.menuBar
         )
-
         let builder = BundleBuilder(args: finalArgs, launcherBinary: launcherBinary)
         let appURL = try builder.build(iconURL: iconURL)
-
         try? fm.removeItem(at: tempDir)
 
         print("")

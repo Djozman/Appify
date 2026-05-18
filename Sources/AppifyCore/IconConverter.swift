@@ -3,6 +3,10 @@ import Cocoa
 
 public struct IconConverter {
 
+    // MARK: - Public API
+
+    /// Convert arbitrary image data (PNG, JPG, ICO, SVG, etc.) to .icns.
+    /// Used for user-supplied custom icons only.
     public static func convertToIcns(pngData: Data, in tempDir: URL) -> URL? {
         let ext = imageExtension(for: pngData)
 
@@ -19,7 +23,7 @@ public struct IconConverter {
             let srcPath = tempDir.appendingPathComponent("icon_src.ico")
             do { try pngData.write(to: srcPath) } catch { return nil }
             if let image = NSImage(contentsOf: srcPath) {
-                let squared = squarePadded(image, size: 1024, sourceData: pngData)
+                let squared = squarePadded(image, size: 1024)
                 guard let squaredData = toPNG(squared) else { return nil }
                 let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
                 do { try squaredData.write(to: squaredPath) } catch { return nil }
@@ -28,7 +32,7 @@ public struct IconConverter {
             let converted = tempDir.appendingPathComponent("icon_converted.png")
             if run("/usr/bin/sips", ["-s", "format", "png", srcPath.path, "--out", converted.path]),
                let image = NSImage(contentsOf: converted) {
-                let squared = squarePadded(image, size: 1024, sourceData: pngData)
+                let squared = squarePadded(image, size: 1024)
                 guard let squaredData = toPNG(squared) else { return nil }
                 let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
                 do { try squaredData.write(to: squaredPath) } catch { return nil }
@@ -61,17 +65,22 @@ public struct IconConverter {
         let pw = rep.flatMap { $0.pixelsWide > 0 ? $0.pixelsWide : nil } ?? Int(image.size.width)
         let ph = rep.flatMap { $0.pixelsHigh > 0 ? $0.pixelsHigh : nil } ?? Int(image.size.height)
         let ratio = Double(pw) / Double(max(ph, 1))
-        let finalImage = ratio > 1.3 ? centerCrop(image, pixelW: pw, pixelH: ph) : squarePadded(image, size: 1024, sourceData: pngData)
+        let finalImage = ratio > 1.3 ? centerCrop(image, pixelW: pw, pixelH: ph) : squarePadded(image, size: 1024)
         guard let squaredData = toPNG(finalImage) else { return nil }
         let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
         do { try squaredData.write(to: squaredPath) } catch { return nil }
         return buildIcns(from: squaredPath, tempDir: tempDir)
     }
 
+    /// Build .icns from an already-correct 1024x1024 PNG (e.g. the composited preview).
+    public static func buildIcnsFromPNG(pngPath: URL, tempDir: URL) -> URL? {
+        buildIcns(from: pngPath, tempDir: tempDir)
+    }
+
     public static func convertPngToIcns(pngPath: URL, tempDir: URL) -> URL? {
         guard let image = NSImage(contentsOf: pngPath),
               let pngData = try? Data(contentsOf: pngPath) else { return nil }
-        let squared = squarePadded(image, size: 1024, sourceData: pngData)
+        let squared = squarePadded(image, size: 1024)
         guard let squaredPNG = toPNG(squared) else { return nil }
         let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
         do { try squaredPNG.write(to: squaredPath) } catch { return nil }
@@ -95,27 +104,7 @@ public struct IconConverter {
         return "png"
     }
 
-    // MARK: - Transparency detection
-
-    static func hasTransparency(_ data: Data) -> Bool {
-        let bytes = [UInt8](data.prefix(2))
-        if bytes.starts(with: [0xFF, 0xD8]) { return false } // JPEG
-        guard let image = NSImage(data: data),
-              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return false }
-        let ai = cgImage.alphaInfo
-        guard ai != .none, ai != .noneSkipFirst, ai != .noneSkipLast else { return false }
-        let side = 32; let bpr = side * 4
-        var pixels = [UInt8](repeating: 0, count: side * bpr)
-        guard let ctx = CGContext(data: &pixels, width: side, height: side,
-                                  bitsPerComponent: 8, bytesPerRow: bpr,
-                                  space: CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
-        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: side, height: side))
-        for i in stride(from: 3, to: pixels.count, by: 4) { if pixels[i] < 240 { return true } }
-        return false
-    }
-
-    // MARK: - Core compositing
+    // MARK: - Compositing
 
     private static func rasterizeSVG(_ image: NSImage, svgData: Data, size: Int) -> NSImage {
         let s = CGFloat(size)
@@ -149,18 +138,12 @@ public struct IconConverter {
         return hasWhiteFill && !hasBackground
     }
 
-    /// Composite the image onto a macOS-style grey card (NSColor white:0.94).
-    /// Always applies the card — favicon icons always get the squircle background.
-    /// Logo fills 75% of the canvas, leaving a clean rim.
-    private static func squarePadded(_ image: NSImage, size: Int, sourceData: Data? = nil) -> NSImage {
+    private static func squarePadded(_ image: NSImage, size: Int) -> NSImage {
         let canvas = CGFloat(size)
         let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
         let w = rep.flatMap { $0.pixelsWide > 0 ? CGFloat($0.pixelsWide) : nil } ?? image.size.width
         let h = rep.flatMap { $0.pixelsHigh > 0 ? CGFloat($0.pixelsHigh) : nil } ?? image.size.height
         let srcSize = CGSize(width: max(w, 1), height: max(h, 1))
-
-        // Always apply card background for favicon-sourced icons.
-        // User-supplied images (convertPngToIcns) also get the card.
         let contentFraction: CGFloat = 0.75
         let maxContent = canvas * contentFraction
         let scale = min(maxContent / srcSize.width, maxContent / srcSize.height)
@@ -168,10 +151,8 @@ public struct IconConverter {
         let drawH = srcSize.height * scale
         let drawX = (canvas - drawW) / 2
         let drawY = (canvas - drawH) / 2
-
         let result = NSImage(size: NSSize(width: canvas, height: canvas))
         result.lockFocus()
-        // macOS-style light grey card background
         NSColor(white: 0.94, alpha: 1.0).setFill()
         let r = canvas * 0.22
         NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: canvas, height: canvas),
@@ -205,7 +186,9 @@ public struct IconConverter {
         return rep.representation(using: .png, properties: [:])
     }
 
-    private static func buildIcns(from pngPath: URL, tempDir: URL) -> URL? {
+    // MARK: - iconutil
+
+    static func buildIcns(from pngPath: URL, tempDir: URL) -> URL? {
         let iconsetDir = tempDir.appendingPathComponent("icon.iconset")
         let icnsPath   = tempDir.appendingPathComponent("icon.icns")
         do { try FileManager.default.createDirectory(at: iconsetDir, withIntermediateDirectories: true) }
