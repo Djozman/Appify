@@ -26,15 +26,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         var iconURL: URL? = nil
         if let customIcon = setup.iconPath {
+            // User picked a custom icon
             let iconPath = URL(fileURLWithPath: customIcon)
             if iconPath.pathExtension.lowercased() == "icns" {
                 iconURL = iconPath
             } else {
                 iconURL = IconConverter.convertPngToIcns(pngPath: iconPath, tempDir: tempDir)
             }
-        } else {
-            if let (data, _) = FaviconFetcher.fetchWithSource(from: setup.url) {
-                iconURL = IconConverter.convertToIcns(pngData: data, in: tempDir)
+        } else if let png = setup.previewPNG {
+            // Use the exact PNG already shown in the preview — no re-fetch, no white card
+            let pngPath = tempDir.appendingPathComponent("icon_preview.png")
+            if (try? png.write(to: pngPath)) != nil {
+                iconURL = IconConverter.buildIcnsFromPNG(pngPath: pngPath, tempDir: tempDir)
             }
         }
 
