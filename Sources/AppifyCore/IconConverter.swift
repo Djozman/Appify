@@ -151,7 +151,7 @@ public struct IconConverter {
 
     /// Composite the image onto a square canvas.
     /// Transparent sources get a white rounded-rect background (macOS icon style).
-    /// contentFraction=0.90 so the logo nearly fills the card.
+    /// contentFraction=0.75 — logo fills 75% of the card, leaving a clean white rim.
     private static func squarePadded(_ image: NSImage, size: Int, sourceData: Data? = nil) -> NSImage {
         let canvas = CGFloat(size)
         let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
@@ -160,8 +160,7 @@ public struct IconConverter {
         let srcSize = CGSize(width: max(w, 1), height: max(h, 1))
 
         let transparent = sourceData.map { hasTransparency($0) } ?? false
-        // 0.90 content fill when we add a white card — logo nearly fills the squircle
-        let contentFraction: CGFloat = transparent ? 0.90 : 0.85
+        let contentFraction: CGFloat = transparent ? 0.75 : 0.85
         let maxContent = canvas * contentFraction
         let scale = min(maxContent / srcSize.width, maxContent / srcSize.height)
         let drawW = srcSize.width * scale

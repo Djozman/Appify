@@ -151,11 +151,13 @@ public class SetupWindowController: NSWindowController {
         CFRunLoopWakeUp(rl)
     }
 
+    /// Composite favicon into a preview matching what IconConverter produces.
+    /// Transparent images: white background, logo at 75% fill (same as squarePadded).
     private func makePreview(from data: Data) -> NSImage? {
         guard let src = NSImage(data: data) else { return nil }
         let size: CGFloat = 80
         let transparent = hasTransparency(data)
-        let contentFraction: CGFloat = transparent ? 0.90 : 1.0
+        let contentFraction: CGFloat = transparent ? 0.75 : 1.0
         let pad = size * (1.0 - contentFraction) / 2
         let result = NSImage(size: NSSize(width: size, height: size))
         result.lockFocus()
