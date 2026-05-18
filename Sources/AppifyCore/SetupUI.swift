@@ -21,10 +21,61 @@ public struct SetupResult {
     }
 }
 
+/// NSView subclass that clips its contents to a macOS-style continuous squircle.
+private class SquircleImageView: NSView {
+    let imageView = NSImageView()
+    private let maskLayer = CAShapeLayer()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.masksToBounds = false
+
+        imageView.frame = bounds
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.autoresizingMask = [.width, .height]
+        addSubview(imageView)
+
+        // Shadow ring — subtle border effect without a hard border
+        layer?.shadowColor = NSColor.black.withAlphaComponent(0.18).cgColor
+        layer?.shadowOpacity = 1
+        layer?.shadowOffset = .zero
+        layer?.shadowRadius = 1
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layout() {
+        super.layout()
+        applySquircleMask()
+    }
+
+    private func applySquircleMask() {
+        let size = bounds.size
+        guard size.width > 0, size.height > 0 else { return }
+        // macOS app icon corner radius = 22.37% of width (matches Dock exactly)
+        let r = size.width * 0.2237
+        let path = CGPath(roundedRect: bounds, cornerWidth: r, cornerHeight: r, transform: nil)
+
+        maskLayer.path = path
+        maskLayer.frame = bounds
+        layer?.mask = maskLayer
+
+        // Shadow path matches the squircle outline
+        layer?.shadowPath = path
+    }
+
+    var image: NSImage? {
+        get { imageView.image }
+        set { imageView.image = newValue }
+    }
+}
+
 public class SetupWindowController: NSWindowController {
     private let urlField      = NSTextField()
     private let nameField     = NSTextField()
-    private let iconImageView = NSImageView()
+    private let iconContainer = SquircleImageView()
+    private var iconImageView: NSImageView { iconContainer.imageView }
     private let iconLabel     = NSTextField(labelWithString: "Auto (favicon)")
     private let widthField    = NSTextField()
     private let heightField   = NSTextField()
@@ -52,15 +103,9 @@ public class SetupWindowController: NSWindowController {
         guard let content = window?.contentView else { return }
         content.wantsLayer = true
 
-        iconImageView.frame = NSRect(x: 24, y: 260, width: 80, height: 80)
-        iconImageView.imageScaling = .scaleProportionallyUpOrDown
-        iconImageView.wantsLayer = true
-        iconImageView.layer?.cornerRadius = 16
-        iconImageView.layer?.masksToBounds = true
-        iconImageView.layer?.borderWidth = 1
-        iconImageView.layer?.borderColor = NSColor.separatorColor.cgColor
-        iconImageView.image = defaultIcon()
-        content.addSubview(iconImageView)
+        iconContainer.frame = NSRect(x: 24, y: 260, width: 80, height: 80)
+        iconContainer.image = defaultIcon()
+        content.addSubview(iconContainer)
 
         iconLabel.frame = NSRect(x: 8, y: 240, width: 112, height: 18)
         iconLabel.font = .systemFont(ofSize: 11)
@@ -154,8 +199,7 @@ public class SetupWindowController: NSWindowController {
     }
 
     /// Pure CoreGraphics — thread-safe.
-    /// Rescales favicon to 1024x1024 with transparent background.
-    /// macOS iconutil + Dock apply the squircle mask automatically.
+    /// Rescales favicon to requested pixel size with transparent background.
     private static func scaledPNG(faviconData: Data, pixels: Int) -> Data? {
         guard let src = CGImageSourceCreateWithData(faviconData as CFData, nil),
               let cgSrc = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
@@ -167,10 +211,8 @@ public class SetupWindowController: NSWindowController {
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
 
-        // Transparent background — let the favicon fill the full canvas
         ctx.clear(CGRect(x: 0, y: 0, width: pixels, height: pixels))
 
-        // Scale to fill full canvas, maintaining aspect ratio
         let srcW = CGFloat(cgSrc.width)
         let srcH = CGFloat(cgSrc.height)
         let scale = min(CGFloat(pixels) / max(srcW, 1), CGFloat(pixels) / max(srcH, 1))
@@ -203,13 +245,12 @@ public class SetupWindowController: NSWindowController {
                 self.updateUI { [weak self] in
                     guard let self, self.fetchToken == token else { return }
                     if self.iconLabel.stringValue == "Fetching..." {
-                        self.iconImageView.image = self.defaultIcon()
+                        self.iconContainer.image = self.defaultIcon()
                         self.iconLabel.stringValue = "No favicon found"
                     }
                 }
                 return
             }
-            // Scale to 1024px PNG — used for both preview and icns
             let png1024 = Self.scaledPNG(faviconData: faviconData, pixels: 1024)
             self.updateUI { [weak self] in
                 guard let self, self.fetchToken == token else { return }
@@ -218,10 +259,10 @@ public class SetupWindowController: NSWindowController {
                 let previewImg = png1024.flatMap { NSImage(data: $0) }
                     ?? NSImage(data: faviconData)
                 if let img = previewImg {
-                    self.iconImageView.image = img
+                    self.iconContainer.image = img
                     self.iconLabel.stringValue = "Auto (favicon)"
                 } else {
-                    self.iconImageView.image = self.defaultIcon()
+                    self.iconContainer.image = self.defaultIcon()
                     self.iconLabel.stringValue = "No favicon found"
                 }
             }
@@ -251,7 +292,7 @@ public class SetupWindowController: NSWindowController {
             customIconPath = url.path
             previewPNG = nil
             if let img = NSImage(contentsOf: url) {
-                iconImageView.image = img
+                iconContainer.image = img
                 iconLabel.stringValue = url.lastPathComponent
             }
         }
@@ -262,7 +303,7 @@ public class SetupWindowController: NSWindowController {
         previewPNG = nil
         let raw = urlField.stringValue.trimmingCharacters(in: .whitespaces)
         guard !raw.isEmpty else {
-            iconImageView.image = defaultIcon()
+            iconContainer.image = defaultIcon()
             iconLabel.stringValue = "Auto (default)"
             return
         }
