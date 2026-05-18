@@ -1,9 +1,6 @@
 import Cocoa
 import AppifyCore
 
-// Standalone GUI entry point — no CLI args needed
-// Launches SetupUI directly, builds the .app, opens it.
-
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
 
@@ -18,7 +15,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let setup = runSetupUI(url: "", name: "") else { NSApp.terminate(nil); return }
         guard !setup.cancelled else { NSApp.terminate(nil); return }
 
-        guard let launcherBinary = Bundle.module.url(forResource: "Resources/Launcher", withExtension: nil) else {
+        guard let launcherBinary = launcherBinaryURL() else {
             showError("Launcher binary not found. Please reinstall Appify.")
             return
         }
@@ -28,7 +25,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         try? fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
         var iconURL: URL? = nil
-
         if let customIcon = setup.iconPath {
             let iconPath = URL(fileURLWithPath: customIcon)
             if iconPath.pathExtension.lowercased() == "icns" {
@@ -75,16 +71,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let response = alert.runModal()
         switch response {
         case .alertFirstButtonReturn:
-            NSWorkspace.shared.openApplication(
-                at: appURL,
-                configuration: NSWorkspace.OpenConfiguration()
-            )
+            NSWorkspace.shared.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration())
         case .alertSecondButtonReturn:
             NSWorkspace.shared.activateFileViewerSelecting([appURL])
-        default:
-            break
+        default: break
         }
-        // Ask if user wants to create another
         let again = NSAlert()
         again.messageText = "Create another app?"
         again.addButton(withTitle: "Create Another")
