@@ -145,13 +145,14 @@ public class SetupWindowController: NSWindowController {
     private func scheduleFaviconFetch(for urlString: String, immediate: Bool = false) {
         fetchTask?.cancel()
         fetchTask = Task { [weak self] in
-            guard let self else { return }
+            guard let self else { print("[favicon] self is nil, bailing"); return }
+            print("[favicon] task started, immediate=\(immediate), url=\(urlString)")
             if !immediate {
-                try? await Task.sleep(nanoseconds: 600_000_000) // 0.6 s debounce
+                try? await Task.sleep(nanoseconds: 600_000_000)
             }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { print("[favicon] cancelled before fetch"); return }
 
-            // Race the fetch against an 8-second timeout so the UI never gets stuck on "Fetching..."
+            print("[favicon] starting withTaskGroup fetch")
             let data = await withTaskGroup(of: (Data, String)?.self) { group in
                 group.addTask {
                     await FaviconFetcher.fetchWithSourceAsync(from: urlString)
@@ -164,37 +165,40 @@ public class SetupWindowController: NSWindowController {
                 group.cancelAll()
                 return result
             }
+            print("[favicon] withTaskGroup done, data=\(data == nil ? "nil" : "some"), isCancelled=\(Task.isCancelled)")
 
+            print("[favicon] about to enter MainActor.run")
             await MainActor.run {
-                // On cancellation: just ensure the label never stays at "Fetching..."
-                // regardless of whether a custom icon was chosen mid-flight.
+                print("[favicon] inside MainActor.run, isCancelled=\(Task.isCancelled), label='\(self.iconLabel.stringValue)', customIconPath=\(self.customIconPath ?? "nil")")
                 guard !Task.isCancelled else {
                     if self.iconLabel.stringValue == "Fetching..." {
+                        print("[favicon] cancelled path — resetting label")
                         self.iconImageView.image = self.defaultIcon()
                         self.iconLabel.stringValue = "No favicon found"
                     }
                     return
                 }
-
-                // Successful (or timed-out) fetch: always store the data and reset the label.
-                // Only update the image preview if no custom icon was chosen while we were fetching.
                 self.faviconData = data?.0
                 if self.iconLabel.stringValue == "Fetching..." {
                     if self.customIconPath == nil {
                         if let imgData = data?.0, let img = NSImage(data: imgData) {
+                            print("[favicon] success — showing favicon")
                             self.iconImageView.image = img
                             self.iconLabel.stringValue = "Auto (favicon)"
                         } else {
+                            print("[favicon] no data — showing default")
                             self.iconImageView.image = self.defaultIcon()
                             self.iconLabel.stringValue = "No favicon found"
                         }
                     } else {
-                        // A custom icon was chosen while fetching — the image is already
-                        // showing the user's file; just clear the "Fetching..." label.
+                        print("[favicon] custom icon set mid-fetch — clearing label")
                         self.iconLabel.stringValue = self.customIconPath.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? "Custom icon"
                     }
+                } else {
+                    print("[favicon] label was not 'Fetching...' on arrival, skipping update (label='\(self.iconLabel.stringValue)')")
                 }
             }
+            print("[favicon] task done")
         }
     }
 
@@ -235,6 +239,7 @@ public class SetupWindowController: NSWindowController {
         }
         iconLabel.stringValue = "Fetching..."
         let url = raw.hasPrefix("http") ? raw : "https://" + raw
+        print("[favicon] resetIcon called, url=\(url)")
         scheduleFaviconFetch(for: url, immediate: true)
     }
 
