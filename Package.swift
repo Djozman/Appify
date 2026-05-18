@@ -24,7 +24,8 @@ let package = Package(
         .executableTarget(
             name: "Appify",
             dependencies: ["AppifyCore"],
-            path: "Sources/Appify"
+            path: "Sources/Appify",
+            exclude: ["Resources"]   // Launcher binary lives here but is not a Swift resource
         ),
         // GUI: double-click .app
         .executableTarget(
