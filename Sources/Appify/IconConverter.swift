@@ -3,27 +3,21 @@ import Cocoa
 
 struct IconConverter {
 
-    /// Convert raw image data (any format) to .icns
     static func convertToIcns(pngData: Data, in tempDir: URL) -> URL? {
         let ext = imageExtension(for: pngData)
 
-        // SVG: rasterize via NSImage directly (sips cannot handle SVG)
         if ext == "svg" {
             guard let image = NSImage(data: pngData) else { return nil }
-            // Force rasterize at high res
-            let rasterized = rasterize(image, size: 1024)
-            let squared = squarePadded(rasterized, size: 1024)
-            guard let squaredData = toPNG(squared) else { return nil }
+            let rasterized = rasterizeSVG(image, svgData: pngData, size: 1024)
+            guard let squaredData = toPNG(rasterized) else { return nil }
             let squaredPath = tempDir.appendingPathComponent("icon_sq.png")
             do { try squaredData.write(to: squaredPath) } catch { return nil }
             return buildIcns(from: squaredPath, tempDir: tempDir)
         }
 
-        // ICO: extract best frame via NSImage (handles multi-resolution ICO)
         if ext == "ico" {
             let srcPath = tempDir.appendingPathComponent("icon_src.ico")
             do { try pngData.write(to: srcPath) } catch { return nil }
-            // Try NSImage first (works for most ICOs)
             if let image = NSImage(contentsOf: srcPath) {
                 let squared = squarePadded(image, size: 1024)
                 guard let squaredData = toPNG(squared) else { return nil }
@@ -31,7 +25,6 @@ struct IconConverter {
                 do { try squaredData.write(to: squaredPath) } catch { return nil }
                 return buildIcns(from: squaredPath, tempDir: tempDir)
             }
-            // Fallback: sips format conversion
             let converted = tempDir.appendingPathComponent("icon_converted.png")
             if run("/usr/bin/sips", ["-s", "format", "png", srcPath.path, "--out", converted.path]),
                let image = NSImage(contentsOf: converted) {
@@ -44,11 +37,9 @@ struct IconConverter {
             return nil
         }
 
-        // JPEG / PNG / WebP / GIF / TIFF / BMP
         let srcPath = tempDir.appendingPathComponent("icon_src.\(ext)")
         do { try pngData.write(to: srcPath) } catch { return nil }
 
-        // Convert non-PNG to PNG via sips if needed
         let pngPath: URL
         if ext == "png" {
             pngPath = srcPath
@@ -67,7 +58,6 @@ struct IconConverter {
 
         guard let image = NSImage(contentsOf: pngPath) else { return nil }
 
-        // Detect aspect ratio — if wide (og:image banner), center-square crop instead of letterbox
         let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
         let pw = rep.flatMap { $0.pixelsWide > 0 ? $0.pixelsWide : nil } ?? Int(image.size.width)
         let ph = rep.flatMap { $0.pixelsHigh > 0 ? $0.pixelsHigh : nil } ?? Int(image.size.height)
@@ -75,10 +65,8 @@ struct IconConverter {
 
         let finalImage: NSImage
         if ratio > 1.3 {
-            // Wide image (banner/og:image) — center-square crop
             finalImage = centerCrop(image, pixelW: pw, pixelH: ph)
         } else {
-            // Already squarish — just pad
             finalImage = squarePadded(image, size: 1024)
         }
 
@@ -88,7 +76,6 @@ struct IconConverter {
         return buildIcns(from: squaredPath, tempDir: tempDir)
     }
 
-    /// Convert an existing image file to .icns
     static func convertPngToIcns(pngPath: URL, tempDir: URL) -> URL? {
         guard let image = NSImage(contentsOf: pngPath) else { return nil }
         let squared = squarePadded(image, size: 1024)
@@ -112,28 +99,68 @@ struct IconConverter {
         if b.count >= 12, b[0...3] == [0x52,0x49,0x46,0x46][...],
            [UInt8](data[8..<12]) == [0x57,0x45,0x42,0x50] { return "webp" }
         if b.starts(with: [0x69, 0x63, 0x6E, 0x73])   { return "icns" }
-        // SVG detection: look for "<svg" in first 512 bytes
         if let text = String(data: data.prefix(512), encoding: .utf8),
            text.lowercased().contains("<svg") { return "svg" }
         return "png"
     }
 
-    // MARK: - Image transforms
+    // MARK: - SVG rasterization
 
-    /// Force NSImage to rasterize at a specific pixel size (important for SVG)
-    private static func rasterize(_ image: NSImage, size: Int) -> NSImage {
+    /// Rasterize SVG, auto-detecting if it needs a colored background
+    /// (e.g. white-on-transparent icons like monochrome.tf)
+    private static func rasterizeSVG(_ image: NSImage, svgData: Data, size: Int) -> NSImage {
         let s = CGFloat(size)
-        let result = NSImage(size: NSSize(width: s, height: s))
-        result.lockFocus()
-        NSColor.clear.setFill()
-        NSRect(x: 0, y: 0, width: s, height: s).fill()
-        image.draw(in: NSRect(x: 0, y: 0, width: s, height: s),
+        let needsBackground = svgIsLightOnTransparent(svgData)
+        let bgColor: NSColor = needsBackground ? darkBackgroundForSVG(svgData) : .clear
+        let padding: CGFloat = needsBackground ? 0.12 : 0.075  // tighter crop when using bg
+
+        let canvas = NSImage(size: NSSize(width: s, height: s))
+        canvas.lockFocus()
+
+        if needsBackground {
+            // Rounded rect background (macOS app icon style)
+            bgColor.setFill()
+            let radius = s * 0.22
+            let bgPath = NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: s, height: s),
+                                      xRadius: radius, yRadius: radius)
+            bgPath.fill()
+        } else {
+            NSColor.clear.setFill()
+            NSRect(x: 0, y: 0, width: s, height: s).fill()
+        }
+
+        let inset = s * padding
+        let drawSize = s - inset * 2
+        image.draw(in: NSRect(x: inset, y: inset, width: drawSize, height: drawSize),
                    from: .zero, operation: .sourceOver, fraction: 1.0)
-        result.unlockFocus()
-        return result
+        canvas.unlockFocus()
+        return canvas
     }
 
-    /// Fit image into a square canvas with 85% fill and transparent background
+    /// Returns true if the SVG uses white/light fill with no background
+    private static func svgIsLightOnTransparent(_ data: Data) -> Bool {
+        guard let text = String(data: data, encoding: .utf8) else { return false }
+        let lower = text.lowercased()
+        // No rect/background fill covering the canvas
+        let hasBackground = lower.contains("background") || lower.contains("rect")
+        // Has white or near-white fill
+        let hasWhiteFill = lower.contains("fill=\"white\"") ||
+                           lower.contains("fill='white'") ||
+                           lower.contains("fill=\"#fff\"") ||
+                           lower.contains("fill=\"#ffffff\"") ||
+                           lower.contains("fill: white") ||
+                           lower.contains("fill: #fff")
+        return hasWhiteFill && !hasBackground
+    }
+
+    /// Pick a background color — use the site's brand feel (dark/neutral)
+    private static func darkBackgroundForSVG(_ data: Data) -> NSColor {
+        // Default: dark charcoal, works well for most light-icon SVGs
+        return NSColor(calibratedRed: 0.10, green: 0.10, blue: 0.12, alpha: 1.0)
+    }
+
+    // MARK: - Image transforms
+
     private static func squarePadded(_ image: NSImage, size: Int) -> NSImage {
         let canvas = CGFloat(size)
         let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
@@ -157,7 +184,6 @@ struct IconConverter {
         return result
     }
 
-    /// Center-square crop: takes the middle square of a wide image
     private static func centerCrop(_ image: NSImage, pixelW: Int, pixelH: Int) -> NSImage {
         let side = CGFloat(min(pixelW, pixelH))
         let srcX = (CGFloat(pixelW) - side) / 2
