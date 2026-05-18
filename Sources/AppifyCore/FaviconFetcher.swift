@@ -2,54 +2,40 @@ import Foundation
 
 public struct FaviconFetcher {
 
-    private static let requestTimeout: TimeInterval = 4
+    private static let requestTimeout: TimeInterval = 5
 
-    /// Sync wrapper — returns within 10 seconds max.
+    /// Sync — called from DispatchQueue.global(), no Swift concurrency involved.
     public static func fetch(from urlString: String) -> Data? {
         fetchWithSource(from: urlString)?.0
     }
 
-    /// Sync wrapper — returns within 10 seconds max.
-    /// Uses Task.detached so it never inherits a blocked actor executor (e.g. runModal).
+    /// Sync — tries sources in order, returns first usable image within timeout.
     public static func fetchWithSource(from urlString: String) -> (Data, String)? {
-        final class Box: @unchecked Sendable { var value: (Data, String)? }
-        let sem = DispatchSemaphore(value: 0)
-        let box = Box()
-        Task.detached {
-            box.value = await fetchWithSourceAsync(from: urlString)
-            sem.signal()
-        }
-        _ = sem.wait(timeout: .now() + 10)
-        return box.value
-    }
-
-    public static func fetchWithSourceAsync(from urlString: String) async -> (Data, String)? {
         guard let parsed = URL(string: urlString), let host = parsed.host else { return nil }
         let base = "\(parsed.scheme ?? "https")://\(host)"
 
-        // 1. Google favicon service — fast, reliable, works for most domains
+        // 1. Google favicon service
         let googleURL = "https://www.google.com/s2/favicons?domain=\(host)&sz=256"
-        if let data = await fetchImage(googleURL), data.count > 100 {
+        if let data = fetchSync(googleURL), data.count > 100 {
             return (data, googleURL)
         }
 
         // 2. apple-touch-icon
-        let appleTouchIcon = "\(base)/apple-touch-icon.png"
-        if let data = await fetchImage(appleTouchIcon), isUsableImage(data) {
-            return (data, appleTouchIcon)
+        let touchIcon = "\(base)/apple-touch-icon.png"
+        if let data = fetchSync(touchIcon), isUsableImage(data) {
+            return (data, touchIcon)
         }
 
         // 3. favicon.ico
         let faviconIco = "\(base)/favicon.ico"
-        if let data = await fetchImage(faviconIco), isUsableImage(data) {
+        if let data = fetchSync(faviconIco), isUsableImage(data) {
             return (data, faviconIco)
         }
 
-        // 4. Parse HTML
-        if let html = await fetchText(urlString) {
-            let candidates = extractIconURLs(from: html, base: base)
-            for candidate in candidates.prefix(3) {
-                if let data = await fetchImage(candidate), isUsableImage(data) {
+        // 4. Parse HTML for icon links
+        if let html = fetchTextSync(urlString) {
+            for candidate in extractIconURLs(from: html, base: base).prefix(3) {
+                if let data = fetchSync(candidate), isUsableImage(data) {
                     return (data, candidate)
                 }
             }
@@ -58,14 +44,60 @@ public struct FaviconFetcher {
         return nil
     }
 
+    // MARK: - Sync network
+
+    private static func fetchSync(_ urlString: String) -> Data? {
+        guard let url = URL(string: urlString) else { return nil }
+        var request = URLRequest(url: url, timeoutInterval: requestTimeout)
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
+        request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
+
+        var result: Data? = nil
+        let sem = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let data, let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                result = data
+            }
+            sem.signal()
+        }.resume()
+        _ = sem.wait(timeout: .now() + requestTimeout + 1)
+        return result
+    }
+
+    private static func fetchTextSync(_ urlString: String) -> String? {
+        guard let url = URL(string: urlString) else { return nil }
+        var request = URLRequest(url: url, timeoutInterval: requestTimeout)
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
+        request.setValue("text/html,*/*", forHTTPHeaderField: "Accept")
+
+        var result: String? = nil
+        let sem = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let data, let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                result = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)
+            }
+            sem.signal()
+        }.resume()
+        _ = sem.wait(timeout: .now() + requestTimeout + 1)
+        return result
+    }
+
+    // MARK: - Async API (kept for any callers that use it)
+
+    public static func fetchWithSourceAsync(from urlString: String) async -> (Data, String)? {
+        await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                cont.resume(returning: fetchWithSource(from: urlString))
+            }
+        }
+    }
+
     // MARK: - HTML Parsing
 
     private static func extractIconURLs(from html: String, base: String) -> [String] {
         var results: [String] = []
-
         let touchIcons = extractLinkTags(html, rel: "apple-touch-icon")
         results.append(contentsOf: touchIcons.sorted { sizeOf($0) > sizeOf($1) }.map { resolve($0, base: base) })
-
         let icons = extractLinkTags(html, rel: "icon")
         let svgIcons = icons.filter { $0.lowercased().contains(".svg") }
         let pngIcons = icons.filter { $0.lowercased().contains(".png") }
@@ -73,14 +105,8 @@ public struct FaviconFetcher {
         results.append(contentsOf: svgIcons.map { resolve($0, base: base) })
         results.append(contentsOf: pngIcons.sorted { sizeOf($0) > sizeOf($1) }.map { resolve($0, base: base) })
         results.append(contentsOf: otherIcons.map { resolve($0, base: base) })
-
-        if let ogImage = extractMeta(html, property: "og:image") {
-            results.append(resolve(ogImage, base: base))
-        }
-        if let twImage = extractMeta(html, property: "twitter:image") {
-            results.append(resolve(twImage, base: base))
-        }
-
+        if let og = extractMeta(html, property: "og:image") { results.append(resolve(og, base: base)) }
+        if let tw = extractMeta(html, property: "twitter:image") { results.append(resolve(tw, base: base)) }
         return results
     }
 
@@ -101,8 +127,6 @@ public struct FaviconFetcher {
         results.append(contentsOf: allMatches(p2, in: html, group: 1))
         return results
     }
-
-    // MARK: - Helpers
 
     private static func resolve(_ href: String, base: String) -> String {
         if href.hasPrefix("http://") || href.hasPrefix("https://") { return href }
@@ -125,40 +149,6 @@ public struct FaviconFetcher {
         if let str = String(data: data.prefix(50), encoding: .utf8),
            str.lowercased().contains("<html") || str.lowercased().hasPrefix("<!") { return false }
         return true
-    }
-
-    // MARK: - Network (async)
-
-    public static func fetchImage(_ urlString: String) async -> Data? { await fetchRaw(urlString) }
-    public static func fetchText(_ urlString: String) async -> String? {
-        guard let data = await fetchRaw(urlString) else { return nil }
-        return String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)
-    }
-
-    private static func fetchRaw(_ urlString: String) async -> Data? {
-        guard let url = URL(string: urlString) else { return nil }
-        var request = URLRequest(url: url, timeoutInterval: requestTimeout)
-        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
-        request.setValue("text/html,application/xhtml+xml,image/svg+xml,image/*,*/*", forHTTPHeaderField: "Accept")
-
-        return await withTaskGroup(of: Data?.self) { group in
-            group.addTask {
-                do {
-                    let (data, response) = try await URLSession.shared.data(for: request)
-                    if let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                        return data
-                    }
-                } catch {}
-                return nil
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(requestTimeout + 2) * 1_000_000_000)
-                return nil
-            }
-            let result = await group.next()!
-            group.cancelAll()
-            return result
-        }
     }
 
     // MARK: - Regex
