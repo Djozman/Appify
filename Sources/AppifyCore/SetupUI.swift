@@ -153,7 +153,8 @@ public class SetupWindowController: NSWindowController {
         CFRunLoopWakeUp(rl)
     }
 
-    /// Pure CoreGraphics — thread-safe. Renders favicon onto grey card at `pixels`x`pixels`.
+    /// Pure CoreGraphics — thread-safe.
+    /// White card, favicon scaled to 80% fill, centered.
     private static func compositePNG(faviconData: Data, pixels: Int) -> Data? {
         guard let src = CGImageSourceCreateWithData(faviconData as CFData, nil),
               let cgSrc = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
@@ -165,21 +166,28 @@ public class SetupWindowController: NSWindowController {
             space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
-        ctx.setFillColor(CGColor(gray: 0.94, alpha: 1.0))
+
+        // White background (matches macOS icon card look)
+        ctx.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
         ctx.fill(CGRect(x: 0, y: 0, width: size, height: size))
+
+        // Scale favicon to 80% of canvas, centered
         let srcW = CGFloat(cgSrc.width)
         let srcH = CGFloat(cgSrc.height)
-        let maxSide = CGFloat(size) * 0.75
+        let maxSide = CGFloat(size) * 0.80
         let scale = min(maxSide / max(srcW, 1), maxSide / max(srcH, 1))
         let drawW = srcW * scale
         let drawH = srcH * scale
         let drawX = (CGFloat(size) - drawW) / 2
         let drawY = (CGFloat(size) - drawH) / 2
+
+        // CG origin is bottom-left; flip to draw image right-side up
         ctx.saveGState()
         ctx.translateBy(x: 0, y: CGFloat(size))
         ctx.scaleBy(x: 1, y: -1)
         ctx.draw(cgSrc, in: CGRect(x: drawX, y: drawY, width: drawW, height: drawH))
         ctx.restoreGState()
+
         guard let rendered = ctx.makeImage() else { return nil }
         let dest = NSMutableData()
         guard let imgDest = CGImageDestinationCreateWithData(dest, "public.png" as CFString, 1, nil) else { return nil }
@@ -204,14 +212,12 @@ public class SetupWindowController: NSWindowController {
                 }
                 return
             }
-            // Build composited 1024px PNG — used for both preview AND icns
+            // Composite once — used for both preview and icns
             let png1024 = Self.compositePNG(faviconData: faviconData, pixels: 1024)
             self.updateUI { [weak self] in
                 guard let self, self.fetchToken == token else { return }
                 self.previewPNG = png1024
                 guard self.iconLabel.stringValue == "Fetching...", self.customIconPath == nil else { return }
-                // Show composite in preview so it matches the Dock icon exactly.
-                // Fall back to raw data if CG composite failed (rare format edge case).
                 let previewImg = png1024.flatMap { NSImage(data: $0) }
                     ?? NSImage(data: faviconData)
                 if let img = previewImg {
