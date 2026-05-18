@@ -29,9 +29,6 @@ public class SetupWindowController: NSWindowController {
     private let menuBarCheck  = NSButton(checkboxWithTitle: "Run as menu bar app (no Dock icon)", target: nil, action: nil)
     private var customIconPath: String? = nil
     private var faviconData: Data? = nil
-    // Token incremented each time a new fetch is scheduled.
-    // The fetch closure captures its own token and discards the result
-    // if the token no longer matches (i.e. a newer fetch superseded it).
     private var fetchToken: Int = 0
     public var result: SetupResult?
 
@@ -133,7 +130,10 @@ public class SetupWindowController: NSWindowController {
         createBtn.keyEquivalent = "\r"
         content.addSubview(createBtn)
 
-        if !url.isEmpty { scheduleFaviconFetch(for: url) }
+        if !url.isEmpty {
+            iconLabel.stringValue = "Fetching..."
+            scheduleFaviconFetch(for: url, debounce: false)
+        }
     }
 
     @discardableResult
@@ -146,7 +146,6 @@ public class SetupWindowController: NSWindowController {
     }
 
     private func scheduleFaviconFetch(for urlString: String, debounce: Bool = true) {
-        // Invalidate any in-flight fetch by bumping the token.
         fetchToken &+= 1
         let token = fetchToken
 
@@ -154,7 +153,7 @@ public class SetupWindowController: NSWindowController {
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, self.fetchToken == token else { return }
 
-            let result = FaviconFetcher.fetchWithSource(from: urlString) // sync, max 10 s
+            let result = FaviconFetcher.fetchWithSource(from: urlString)
 
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.fetchToken == token else { return }
@@ -214,7 +213,7 @@ public class SetupWindowController: NSWindowController {
             return
         }
         iconLabel.stringValue = "Fetching..."
-        let url = raw.hasPrefix("http") ? raw : "https://" + raw
+        let url = raw.hasPrefix("http") ? raw : "https://" + url
         scheduleFaviconFetch(for: url, debounce: false)
     }
 
