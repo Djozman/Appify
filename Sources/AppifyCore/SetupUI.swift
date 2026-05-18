@@ -39,7 +39,7 @@ public class SetupWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        win.title = "Appify \u2014 Create App"
+        win.title = "Appify — Create App"
         win.center()
         win.level = .floating
         self.init(window: win)
@@ -145,15 +145,12 @@ public class SetupWindowController: NSWindowController {
         return lbl
     }
 
-    /// Schedule a UI update that fires even while NSApp.runModal is spinning.
     private func updateUI(_ block: @escaping () -> Void) {
         let rl = CFRunLoopGetMain()
         CFRunLoopPerformBlock(rl, CFRunLoopMode.commonModes.rawValue, block)
         CFRunLoopWakeUp(rl)
     }
 
-    /// Composite favicon data into a preview image that matches what IconConverter will build.
-    /// Transparent images get a white rounded background; opaque images render directly.
     private func makePreview(from data: Data) -> NSImage? {
         guard let src = NSImage(data: data) else { return nil }
         let size: CGFloat = 80
@@ -164,7 +161,6 @@ public class SetupWindowController: NSWindowController {
         result.lockFocus()
         if transparent {
             NSColor.white.setFill()
-            // fill full rect; the view's cornerRadius clips to squircle
             NSRect(x: 0, y: 0, width: size, height: size).fill()
         } else {
             NSColor.clear.setFill()
@@ -188,7 +184,6 @@ public class SetupWindowController: NSWindowController {
 
     private func hasTransparency(_ data: Data) -> Bool {
         let bytes = [UInt8](data.prefix(4))
-        // JPEGs never have alpha
         if bytes.starts(with: [0xFF, 0xD8]) { return false }
         guard let image = NSImage(data: data),
               let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return false }
@@ -212,9 +207,7 @@ public class SetupWindowController: NSWindowController {
         let delay = debounce ? 0.6 : 0.0
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, self.fetchToken == token else { return }
-
             let result = FaviconFetcher.fetchWithSource(from: urlString)
-
             self.updateUI { [weak self] in
                 guard let self, self.fetchToken == token else { return }
                 self.faviconData = result?.0
