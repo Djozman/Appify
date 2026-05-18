@@ -162,14 +162,18 @@ class SetupWindowController: NSWindowController {
                 return result
             }
 
-            guard !Task.isCancelled else { return }
+            // Always update the label, even if cancelled — otherwise
+            // "Fetching..." can be stuck forever when a previous task
+            // was cancelled by a newer fetchTask?.cancel() call.
             await MainActor.run {
-                self.faviconData = data?.0
+                if !Task.isCancelled {
+                    self.faviconData = data?.0
+                }
                 if self.customIconPath == nil {
-                    if let data = data?.0, let img = NSImage(data: data) {
+                    if !Task.isCancelled, let imgData = data?.0, let img = NSImage(data: imgData) {
                         self.iconImageView.image = img
                         self.iconLabel.stringValue = "Auto (favicon)"
-                    } else {
+                    } else if self.iconLabel.stringValue == "Fetching..." {
                         self.iconImageView.image = self.defaultIcon()
                         self.iconLabel.stringValue = "No favicon found"
                     }
