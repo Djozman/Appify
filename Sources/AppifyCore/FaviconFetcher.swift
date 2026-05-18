@@ -10,16 +10,16 @@ public struct FaviconFetcher {
     }
 
     /// Sync wrapper — returns within 10 seconds max.
+    /// Uses Task.detached so it never inherits a blocked actor executor (e.g. runModal).
     public static func fetchWithSource(from urlString: String) -> (Data, String)? {
         final class Box: @unchecked Sendable { var value: (Data, String)? }
         let sem = DispatchSemaphore(value: 0)
         let box = Box()
-        let task = Task { @Sendable in
+        Task.detached {
             box.value = await fetchWithSourceAsync(from: urlString)
             sem.signal()
         }
         _ = sem.wait(timeout: .now() + 10)
-        task.cancel()
         return box.value
     }
 
@@ -135,8 +135,6 @@ public struct FaviconFetcher {
         return String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)
     }
 
-    /// Fetch a URL with a hard timeout that uses Swift concurrency cancellation,
-    /// so we are never stuck waiting for a single request longer than `requestTimeout` seconds.
     private static func fetchRaw(_ urlString: String) async -> Data? {
         guard let url = URL(string: urlString) else { return nil }
         var request = URLRequest(url: url, timeoutInterval: requestTimeout)
@@ -150,9 +148,7 @@ public struct FaviconFetcher {
                     if let http = response as? HTTPURLResponse, http.statusCode == 200 {
                         return data
                     }
-                } catch {
-                    // timeout or network error
-                }
+                } catch {}
                 return nil
             }
             group.addTask {
