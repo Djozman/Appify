@@ -2,17 +2,14 @@ import Foundation
 
 struct FaviconFetcher {
 
-    // Returns data only
     static func fetch(from urlString: String) -> Data? {
         fetchWithSource(from: urlString)?.0
     }
 
-    // Returns (data, sourceURL) so callers can log where the image came from
     static func fetchWithSource(from urlString: String) -> (Data, String)? {
         guard let parsed = URL(string: urlString), let host = parsed.host else { return nil }
         let base = "\(parsed.scheme ?? "https")://\(host)"
 
-        // Step 1: Parse HTML for high-res icons
         if let html = fetchText(urlString) {
             let candidates = extractIconURLs(from: html, base: base)
             for candidate in candidates {
@@ -22,7 +19,6 @@ struct FaviconFetcher {
             }
         }
 
-        // Step 2: Well-known paths
         let wellKnown = [
             "\(base)/apple-touch-icon.png",
             "\(base)/apple-touch-icon-precomposed.png",
@@ -35,7 +31,6 @@ struct FaviconFetcher {
             if let data = fetchImage(url), isUsableImage(data) { return (data, url) }
         }
 
-        // Step 3: Google favicon API — lower the size bar since it's always small
         let googleURL = "https://www.google.com/s2/favicons?domain=\(host)&sz=256"
         if let data = fetchImage(googleURL), data.count > 100 {
             return (data, googleURL)
@@ -45,33 +40,38 @@ struct FaviconFetcher {
     }
 
     // MARK: - HTML Parsing
+    // Priority: apple-touch-icon > SVG icon > PNG icon > manifest > og:image (wide banner, last resort)
 
     private static func extractIconURLs(from html: String, base: String) -> [String] {
         var results: [String] = []
 
-        if let ogImage = extractMeta(html, property: "og:image") {
-            results.append(resolve(ogImage, base: base))
-        }
-        if let twImage = extractMeta(html, property: "twitter:image") {
-            results.append(resolve(twImage, base: base))
-        }
-
+        // 1. apple-touch-icon — best quality, already square
         let touchIcons = extractLinkTags(html, rel: "apple-touch-icon")
         results.append(contentsOf: touchIcons.sorted { sizeOf($0) > sizeOf($1) }.map { resolve($0, base: base) })
 
+        // 2. All <link rel="icon"> — SVG first, then PNG by size
         let icons = extractLinkTags(html, rel: "icon")
+        let svgIcons = icons.filter { $0.lowercased().contains(".svg") }
         let pngIcons = icons.filter { $0.lowercased().contains(".png") }
+        let otherIcons = icons.filter { !$0.lowercased().contains(".svg") && !$0.lowercased().contains(".png") }
+        results.append(contentsOf: svgIcons.map { resolve($0, base: base) })
         results.append(contentsOf: pngIcons.sorted { sizeOf($0) > sizeOf($1) }.map { resolve($0, base: base) })
+        results.append(contentsOf: otherIcons.map { resolve($0, base: base) })
 
+        // 3. Web manifest icons
         if let manifestURL = extractManifestURL(html, base: base),
            let manifestText = fetchText(manifestURL),
            let iconURL = extractManifestIcon(manifestText, base: base) {
             results.append(iconURL)
         }
 
-        // All remaining icon links including .ico
-        let remaining = icons.filter { !$0.lowercased().contains(".png") }
-        results.append(contentsOf: remaining.map { resolve($0, base: base) })
+        // 4. og:image last — usually a wide banner, needs center-crop
+        if let ogImage = extractMeta(html, property: "og:image") {
+            results.append(resolve(ogImage, base: base))
+        }
+        if let twImage = extractMeta(html, property: "twitter:image") {
+            results.append(resolve(twImage, base: base))
+        }
 
         return results
     }
@@ -134,7 +134,13 @@ struct FaviconFetcher {
     }
 
     private static func isUsableImage(_ data: Data) -> Bool {
-        guard data.count > 500 else { return false }
+        // SVG: text-based, can be very small — check content instead of size
+        if let text = String(data: data.prefix(512), encoding: .utf8),
+           text.contains("<svg") || text.contains("<?xml") {
+            return !text.lowercased().contains("<html")
+        }
+        // Raster: must be at least 200 bytes and not an HTML error page
+        guard data.count > 200 else { return false }
         if let str = String(data: data.prefix(50), encoding: .utf8),
            str.lowercased().contains("<html") || str.lowercased().hasPrefix("<!") { return false }
         return true
@@ -152,7 +158,7 @@ struct FaviconFetcher {
         guard let url = URL(string: urlString) else { return nil }
         var request = URLRequest(url: url, timeoutInterval: timeout)
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
-        request.setValue("text/html,application/xhtml+xml,image/*,*/*", forHTTPHeaderField: "Accept")
+        request.setValue("text/html,application/xhtml+xml,image/svg+xml,image/*,*/*", forHTTPHeaderField: "Accept")
         let sem = DispatchSemaphore(value: 0)
         var result: Data?
         URLSession.shared.dataTask(with: request) { data, response, _ in
