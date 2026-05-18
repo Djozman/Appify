@@ -153,64 +153,49 @@ public class SetupWindowController: NSWindowController {
         CFRunLoopWakeUp(rl)
     }
 
-    /// Render favicon onto grey card at 1024x1024. Returns the PNG bytes.
-    /// The preview is produced by downscaling this same PNG — single render, single source.
-    private func makeComposite1024(from data: Data) -> Data? {
-        guard let src = NSImage(data: data) else { return nil }
-        let size: CGFloat = 1024
-        let contentFraction: CGFloat = 0.75
-        // Force highest-res rep
-        let rep = src.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
-        let pw = rep.flatMap { $0.pixelsWide > 0 ? CGFloat($0.pixelsWide) : nil } ?? src.size.width
-        let ph = rep.flatMap { $0.pixelsHigh > 0 ? CGFloat($0.pixelsHigh) : nil } ?? src.size.height
-        let srcSize = CGSize(width: max(pw, 1), height: max(ph, 1))
-        let maxContent = size * contentFraction
-        let scale = min(maxContent / srcSize.width, maxContent / srcSize.height)
-        let drawW = srcSize.width * scale
-        let drawH = srcSize.height * scale
-        let drawX = (size - drawW) / 2
-        let drawY = (size - drawH) / 2
+    /// Pure CoreGraphics composite — thread-safe, works on background queues.
+    /// Grey card at `pixels`x`pixels`, favicon scaled to 75% fill.
+    /// Returns PNG data. The preview is just a downscale of the 1024px version.
+    private static func compositePNG(faviconData: Data, pixels: Int) -> Data? {
+        guard let src = CGImageSourceCreateWithData(faviconData as CFData, nil),
+              let cgSrc = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
 
-        guard let bitmapRep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(size), pixelsHigh: Int(size),
-            bitsPerSample: 8, samplesPerPixel: 4,
-            hasAlpha: true, isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0, bitsPerPixel: 0
+        let size = pixels
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil, width: size, height: size,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
-        bitmapRep.size = NSSize(width: size, height: size)
 
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmapRep)
-        NSColor(white: 0.94, alpha: 1.0).setFill()
-        NSRect(x: 0, y: 0, width: size, height: size).fill()
-        // Draw from the highest-res rep directly, bypassing NSImage size-based rep selection
-        if let hiRep = rep {
-            hiRep.draw(in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH),
-                       from: NSRect(origin: .zero, size: NSSize(width: pw, height: ph)),
-                       operation: .sourceOver, fraction: 1.0,
-                       respectFlipped: true, hints: [.interpolation: NSNumber(value: NSImageInterpolation.high.rawValue)])
-        } else {
-            src.draw(in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH),
-                     from: NSRect(origin: .zero, size: srcSize),
-                     operation: .sourceOver, fraction: 1.0)
-        }
-        NSGraphicsContext.restoreGraphicsState()
+        // Grey background
+        ctx.setFillColor(CGColor(gray: 0.94, alpha: 1.0))
+        ctx.fill(CGRect(x: 0, y: 0, width: size, height: size))
 
-        return bitmapRep.representation(using: .png, properties: [:])
-    }
+        // Scale favicon to 75% of canvas, centered
+        let srcW = CGFloat(cgSrc.width)
+        let srcH = CGFloat(cgSrc.height)
+        let maxSide = CGFloat(size) * 0.75
+        let scale = min(maxSide / max(srcW, 1), maxSide / max(srcH, 1))
+        let drawW = srcW * scale
+        let drawH = srcH * scale
+        let drawX = (CGFloat(size) - drawW) / 2
+        let drawY = (CGFloat(size) - drawH) / 2
 
-    /// Downscale a PNG to an NSImage at the given point size. Used for preview only.
-    private func downscale(png: Data, to size: CGFloat) -> NSImage? {
-        guard let src = NSImage(data: png) else { return nil }
-        let result = NSImage(size: NSSize(width: size, height: size))
-        result.lockFocus()
-        src.draw(in: NSRect(x: 0, y: 0, width: size, height: size),
-                 from: NSRect(origin: .zero, size: src.size),
-                 operation: .sourceOver, fraction: 1.0)
-        result.unlockFocus()
-        return result
+        // CG origin is bottom-left; flip to draw image right-side up
+        ctx.saveGState()
+        ctx.translateBy(x: 0, y: CGFloat(size))
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(cgSrc, in: CGRect(x: drawX, y: drawY, width: drawW, height: drawH))
+        ctx.restoreGState()
+
+        guard let rendered = ctx.makeImage() else { return nil }
+        let dest = NSMutableData()
+        guard let imgDest = CGImageDestinationCreateWithData(dest, "public.png" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(imgDest, rendered, nil)
+        guard CGImageDestinationFinalize(imgDest) else { return nil }
+        return dest as Data
     }
 
     private func scheduleFaviconFetch(for urlString: String, debounce: Bool = true) {
@@ -223,10 +208,10 @@ public class SetupWindowController: NSWindowController {
             var previewImg: NSImage? = nil
             var png1024: Data? = nil
             if let data = fetched?.0 {
-                // One render at 1024 — preview is a downscale of that exact PNG
-                if let png = self.makeComposite1024(from: data) {
+                // Render once at 1024 — preview is a downscale of the same PNG
+                if let png = Self.compositePNG(faviconData: data, pixels: 1024) {
                     png1024 = png
-                    previewImg = self.downscale(png: png, to: 80)
+                    previewImg = NSImage(data: png)
                 }
             }
             self.updateUI { [weak self] in
