@@ -8,31 +8,33 @@ source "$ROOT/version.env"
 LAUNCHER_ARM="$ROOT/.build/arm64-apple-macosx/release/Launcher"
 LAUNCHER_X86="$ROOT/.build/x86_64-apple-macosx/release/Launcher"
 CORE_RES="$ROOT/Sources/AppifyCore/Resources"
-DIST="$ROOT/dist"
-APP="$DIST/Appify.app"
+APP="/Applications/Appify.app"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
 RES="$CONTENTS/Resources"
 
-# ---- Step 1: Build Launcher first (both arches) ----
+# ---- Step 1: Remove old app ----
+rm -rf "$APP"
+
+# ---- Step 2: Build Launcher first (both arches) ----
 echo "===> Building Launcher (arm64 + x86_64)..."
 cd "$ROOT"
 swift build -c release --arch arm64  --product Launcher
 swift build -c release --arch x86_64 --product Launcher
 
-# ---- Step 2: Embed universal Launcher into AppifyCore/Resources ----
+# ---- Step 3: Embed universal Launcher into AppifyCore/Resources ----
 # SPM will bundle it at compile-time so Bundle.module can find it at runtime.
 echo "===> Embedding Launcher into AppifyCore/Resources..."
 mkdir -p "$CORE_RES"
 lipo -create -output "$CORE_RES/Launcher" "$LAUNCHER_ARM" "$LAUNCHER_X86"
 chmod +x "$CORE_RES/Launcher"
 
-# ---- Step 3: Build AppifyGUI (Launcher is now in the resource bundle) ----
+# ---- Step 4: Build AppifyGUI (Launcher is now in the resource bundle) ----
 echo "===> Building AppifyGUI (arm64 + x86_64)..."
 swift build -c release --arch arm64  --product AppifyGUI
 swift build -c release --arch x86_64 --product AppifyGUI
 
-# ---- Step 4: Assemble Appify.app ----
+# ---- Step 5: Assemble Appify.app ----
 echo "===> Assembling Appify.app..."
 mkdir -p "$MACOS" "$RES"
 
@@ -45,7 +47,7 @@ chmod +x "$MACOS/AppifyGUI"
 lipo -create -output "$RES/Launcher" "$LAUNCHER_ARM" "$LAUNCHER_X86"
 chmod +x "$RES/Launcher"
 
-# ---- Step 5: Info.plist + PkgInfo ----
+# ---- Step 6: Info.plist + PkgInfo ----
 echo "===> Writing Info.plist..."
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -72,25 +74,15 @@ PLIST
 
 printf 'APPL????' > "$CONTENTS/PkgInfo"
 
-# ---- Step 6: App icon ----
+# ---- Step 7: App icon ----
 if [ -f "$ROOT/Assets/AppIcon.icns" ]; then
     cp "$ROOT/Assets/AppIcon.icns" "$RES/AppIcon.icns"
 else
     echo "  [warning] No Assets/AppIcon.icns found — app will use default icon"
 fi
 
-# ---- Step 7: DMG ----
-echo "===> Creating DMG..."
-mkdir -p "$DIST"
-DMG_PATH="$DIST/Appify-${VERSION}.dmg"
-hdiutil create -volname "Appify" \
-    -srcfolder "$APP" \
-    -ov -format UDZO \
-    -o "$DMG_PATH"
-
 echo ""
 echo "Done!"
 echo "  App : $APP"
-echo "  DMG : $DMG_PATH"
 echo ""
 echo "To test: open \"$APP\""

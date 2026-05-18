@@ -2,54 +2,74 @@ import Foundation
 
 struct FaviconFetcher {
 
+    private static let requestTimeout: TimeInterval = 4
+
+    /// Sync wrapper — returns within 10 seconds max.
     static func fetch(from urlString: String) -> Data? {
         fetchWithSource(from: urlString)?.0
     }
 
+    /// Sync wrapper — returns within 10 seconds max.
     static func fetchWithSource(from urlString: String) -> (Data, String)? {
+        let sem = DispatchSemaphore(value: 0)
+        let box = UnsafeMutablePointer<(Data, String)?>.allocate(capacity: 1)
+        box.initialize(to: nil)
+        let task = Task { @Sendable in
+            let r = await fetchWithSourceAsync(from: urlString)
+            box.pointee = r
+            sem.signal()
+        }
+        _ = sem.wait(timeout: .now() + 10)
+        task.cancel()
+        let r = box.pointee
+        box.deinitialize(count: 1)
+        box.deallocate()
+        return r
+    }
+
+    static func fetchWithSourceAsync(from urlString: String) async -> (Data, String)? {
         guard let parsed = URL(string: urlString), let host = parsed.host else { return nil }
         let base = "\(parsed.scheme ?? "https")://\(host)"
 
-        if let html = fetchText(urlString) {
+        // 1. Google favicon service — fast, reliable, works for most domains
+        let googleURL = "https://www.google.com/s2/favicons?domain=\(host)&sz=256"
+        if let data = await fetchImage(googleURL), data.count > 100 {
+            return (data, googleURL)
+        }
+
+        // 2. apple-touch-icon
+        let appleTouchIcon = "\(base)/apple-touch-icon.png"
+        if let data = await fetchImage(appleTouchIcon), isUsableImage(data) {
+            return (data, appleTouchIcon)
+        }
+
+        // 3. favicon.ico
+        let faviconIco = "\(base)/favicon.ico"
+        if let data = await fetchImage(faviconIco), isUsableImage(data) {
+            return (data, faviconIco)
+        }
+
+        // 4. Parse HTML
+        if let html = await fetchText(urlString) {
             let candidates = extractIconURLs(from: html, base: base)
-            for candidate in candidates {
-                if let data = fetchImage(candidate), isUsableImage(data) {
+            for candidate in candidates.prefix(3) {
+                if let data = await fetchImage(candidate), isUsableImage(data) {
                     return (data, candidate)
                 }
             }
-        }
-
-        let wellKnown = [
-            "\(base)/apple-touch-icon.png",
-            "\(base)/apple-touch-icon-precomposed.png",
-            "\(base)/favicon.png",
-            "\(base)/icon.png",
-            "\(base)/logo.png",
-            "\(base)/favicon.ico",
-        ]
-        for url in wellKnown {
-            if let data = fetchImage(url), isUsableImage(data) { return (data, url) }
-        }
-
-        let googleURL = "https://www.google.com/s2/favicons?domain=\(host)&sz=256"
-        if let data = fetchImage(googleURL), data.count > 100 {
-            return (data, googleURL)
         }
 
         return nil
     }
 
     // MARK: - HTML Parsing
-    // Priority: apple-touch-icon > SVG icon > PNG icon > manifest > og:image (wide banner, last resort)
 
     private static func extractIconURLs(from html: String, base: String) -> [String] {
         var results: [String] = []
 
-        // 1. apple-touch-icon — best quality, already square
         let touchIcons = extractLinkTags(html, rel: "apple-touch-icon")
         results.append(contentsOf: touchIcons.sorted { sizeOf($0) > sizeOf($1) }.map { resolve($0, base: base) })
 
-        // 2. All <link rel="icon"> — SVG first, then PNG by size
         let icons = extractLinkTags(html, rel: "icon")
         let svgIcons = icons.filter { $0.lowercased().contains(".svg") }
         let pngIcons = icons.filter { $0.lowercased().contains(".png") }
@@ -58,14 +78,6 @@ struct FaviconFetcher {
         results.append(contentsOf: pngIcons.sorted { sizeOf($0) > sizeOf($1) }.map { resolve($0, base: base) })
         results.append(contentsOf: otherIcons.map { resolve($0, base: base) })
 
-        // 3. Web manifest icons
-        if let manifestURL = extractManifestURL(html, base: base),
-           let manifestText = fetchText(manifestURL),
-           let iconURL = extractManifestIcon(manifestText, base: base) {
-            results.append(iconURL)
-        }
-
-        // 4. og:image last — usually a wide banner, needs center-crop
         if let ogImage = extractMeta(html, property: "og:image") {
             results.append(resolve(ogImage, base: base))
         }
@@ -81,9 +93,7 @@ struct FaviconFetcher {
             "(?i)<meta[^>]+(?:property|name)=[\"']\(NSRegularExpression.escapedPattern(for: property))[\"'][^>]+content=[\"']([^\"']+)[\"']",
             "(?i)<meta[^>]+content=[\"']([^\"']+)[\"'][^>]+(?:property|name)=[\"']\(NSRegularExpression.escapedPattern(for: property))[\"']",
         ]
-        for pattern in patterns {
-            if let match = firstMatch(pattern, in: html, group: 1) { return match }
-        }
+        for p in patterns { if let m = firstMatch(p, in: html, group: 1) { return m } }
         return nil
     }
 
@@ -96,25 +106,6 @@ struct FaviconFetcher {
         return results
     }
 
-    private static func extractManifestURL(_ html: String, base: String) -> String? {
-        let p1 = "(?i)<link[^>]+rel=[\"']manifest[\"'][^>]+href=[\"']([^\"']+)[\"']"
-        if let href = firstMatch(p1, in: html, group: 1) { return resolve(href, base: base) }
-        let p2 = "(?i)<link[^>]+href=[\"']([^\"']+)[\"'][^>]+rel=[\"']manifest[\"']"
-        if let href = firstMatch(p2, in: html, group: 1) { return resolve(href, base: base) }
-        return nil
-    }
-
-    private static func extractManifestIcon(_ json: String, base: String) -> String? {
-        guard let data = json.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let icons = obj["icons"] as? [[String: Any]] else { return nil }
-        let sorted = icons.sorted {
-            sizeFromManifest($0["sizes"] as? String ?? "") > sizeFromManifest($1["sizes"] as? String ?? "")
-        }
-        if let src = sorted.first?["src"] as? String { return resolve(src, base: base) }
-        return nil
-    }
-
     // MARK: - Helpers
 
     private static func resolve(_ href: String, base: String) -> String {
@@ -125,48 +116,57 @@ struct FaviconFetcher {
     }
 
     private static func sizeOf(_ url: String) -> Int {
-        if let match = firstMatch("(\\d+)x\\d+", in: url, group: 1), let n = Int(match) { return n }
+        if let m = firstMatch("(\\d+)x\\d+", in: url, group: 1), let n = Int(m) { return n }
         return 0
     }
 
-    private static func sizeFromManifest(_ sizes: String) -> Int {
-        Int(sizes.lowercased().components(separatedBy: "x").first ?? "") ?? 0
-    }
-
     private static func isUsableImage(_ data: Data) -> Bool {
-        // SVG: text-based, can be very small — check content instead of size
         if let text = String(data: data.prefix(512), encoding: .utf8),
            text.contains("<svg") || text.contains("<?xml") {
             return !text.lowercased().contains("<html")
         }
-        // Raster: must be at least 200 bytes and not an HTML error page
         guard data.count > 200 else { return false }
         if let str = String(data: data.prefix(50), encoding: .utf8),
            str.lowercased().contains("<html") || str.lowercased().hasPrefix("<!") { return false }
         return true
     }
 
-    // MARK: - Network
+    // MARK: - Network (async)
 
-    static func fetchImage(_ urlString: String) -> Data? { fetchRaw(urlString, timeout: 8) }
-    static func fetchText(_ urlString: String) -> String? {
-        guard let data = fetchRaw(urlString, timeout: 10) else { return nil }
+    static func fetchImage(_ urlString: String) async -> Data? { await fetchRaw(urlString) }
+    static func fetchText(_ urlString: String) async -> String? {
+        guard let data = await fetchRaw(urlString) else { return nil }
         return String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)
     }
 
-    private static func fetchRaw(_ urlString: String, timeout: TimeInterval) -> Data? {
+    /// Fetch a URL with a hard timeout that uses Swift concurrency cancellation,
+    /// so we are never stuck waiting for a single request longer than `requestTimeout` seconds.
+    private static func fetchRaw(_ urlString: String) async -> Data? {
         guard let url = URL(string: urlString) else { return nil }
-        var request = URLRequest(url: url, timeoutInterval: timeout)
+        var request = URLRequest(url: url, timeoutInterval: requestTimeout)
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml,image/svg+xml,image/*,*/*", forHTTPHeaderField: "Accept")
-        let sem = DispatchSemaphore(value: 0)
-        var result: Data?
-        URLSession.shared.dataTask(with: request) { data, response, _ in
-            if let data, let http = response as? HTTPURLResponse, http.statusCode == 200 { result = data }
-            sem.signal()
-        }.resume()
-        sem.wait()
-        return result
+
+        return await withTaskGroup(of: Data?.self) { group in
+            group.addTask {
+                do {
+                    let (data, response) = try await URLSession.shared.data(for: request)
+                    if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                        return data
+                    }
+                } catch {
+                    // timeout or network error
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(requestTimeout + 2) * 1_000_000_000)
+                return nil
+            }
+            let result = await group.next()!
+            group.cancelAll()
+            return result
+        }
     }
 
     // MARK: - Regex

@@ -23,7 +23,7 @@ class SetupWindowController: NSWindowController {
 
     private var customIconPath: String? = nil
     private var faviconData: Data? = nil
-    private var fetchWorkItem: DispatchWorkItem? = nil
+    private var fetchTask: Task<Void, Never>?
 
     var result: SetupResult?
 
@@ -139,26 +139,43 @@ class SetupWindowController: NSWindowController {
         return lbl
     }
 
-    private func scheduleFaviconFetch(for urlString: String) {
-        fetchWorkItem?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self = self else { return }
-            let data = FaviconFetcher.fetch(from: urlString)
-            DispatchQueue.main.async {
-                self.faviconData = data
+    private func scheduleFaviconFetch(for urlString: String, immediate: Bool = false) {
+        fetchTask?.cancel()
+        fetchTask = Task { [weak self] in
+            guard let self else { return }
+            if !immediate {
+                try? await Task.sleep(nanoseconds: 600_000_000) // 0.6 s debounce
+            }
+            guard !Task.isCancelled else { return }
+
+            // Race the fetch against an 8-second timeout so the UI never gets stuck on "Fetching..."
+            let data = await withTaskGroup(of: (Data, String)?.self) { group in
+                group.addTask {
+                    await FaviconFetcher.fetchWithSourceAsync(from: urlString)
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    return nil
+                }
+                let result = await group.next()!
+                group.cancelAll()
+                return result
+            }
+
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self.faviconData = data?.0
                 if self.customIconPath == nil {
-                    if let data = data, let img = NSImage(data: data) {
+                    if let data = data?.0, let img = NSImage(data: data) {
                         self.iconImageView.image = img
                         self.iconLabel.stringValue = "Auto (favicon)"
                     } else {
                         self.iconImageView.image = self.defaultIcon()
-                        self.iconLabel.stringValue = "Auto (default)"
+                        self.iconLabel.stringValue = "No favicon found"
                     }
                 }
             }
         }
-        fetchWorkItem = work
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.6, execute: work)
     }
 
     @objc private func urlChanged() {
@@ -190,13 +207,15 @@ class SetupWindowController: NSWindowController {
 
     @objc private func resetIcon() {
         customIconPath = nil
-        if let data = faviconData, let img = NSImage(data: data) {
-            iconImageView.image = img
-            iconLabel.stringValue = "Auto (favicon)"
-        } else {
+        let raw = urlField.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty else {
             iconImageView.image = defaultIcon()
             iconLabel.stringValue = "Auto (default)"
+            return
         }
+        iconLabel.stringValue = "Fetching..."
+        let url = raw.hasPrefix("http") ? raw : "https://" + raw
+        scheduleFaviconFetch(for: url, immediate: true)
     }
 
     private func defaultIcon() -> NSImage {
