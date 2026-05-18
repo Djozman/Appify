@@ -80,11 +80,20 @@ cat > "$CONTENTS/Info.plist" << PLIST
     <key>CFBundleVersion</key>           <string>$BUILD_NUMBER</string>
     <key>NSHighResolutionCapable</key>   <true/>
     <key>LSMinimumSystemVersion</key>    <string>13.0</string>
+    <key>CFBundleIconFile</key>          <string>AppIcon</string>
 </dict>
 </plist>
 PLIST
 
-echo "APPL????" > "$CONTENTS/PkgInfo"
+printf 'APPL????' > "$CONTENTS/PkgInfo"
+
+# ── App icon ────────────────────────────────────────────────────────────────
+if [ -f "$REPO_ROOT/Assets/AppIcon.icns" ]; then
+    cp "$REPO_ROOT/Assets/AppIcon.icns" "$RESOURCES/AppIcon.icns"
+    echo "  [4/5] App icon copied"
+else
+    echo "  [4/5] No Assets/AppIcon.icns found — skipping icon"
+fi
 
 echo ""
 echo "  ✓ Built: $APP_PATH"
