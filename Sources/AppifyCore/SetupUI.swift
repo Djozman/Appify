@@ -39,7 +39,7 @@ public class SetupWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        win.title = "Appify — Create App"
+        win.title = "Appify \u2014 Create App"
         win.center()
         win.level = .floating
         self.init(window: win)
@@ -152,6 +152,59 @@ public class SetupWindowController: NSWindowController {
         CFRunLoopWakeUp(rl)
     }
 
+    /// Composite favicon data into a preview image that matches what IconConverter will build.
+    /// Transparent images get a white rounded background; opaque images render directly.
+    private func makePreview(from data: Data) -> NSImage? {
+        guard let src = NSImage(data: data) else { return nil }
+        let size: CGFloat = 80
+        let transparent = hasTransparency(data)
+        let contentFraction: CGFloat = transparent ? 0.90 : 1.0
+        let pad = size * (1.0 - contentFraction) / 2
+        let result = NSImage(size: NSSize(width: size, height: size))
+        result.lockFocus()
+        if transparent {
+            NSColor.white.setFill()
+            // fill full rect; the view's cornerRadius clips to squircle
+            NSRect(x: 0, y: 0, width: size, height: size).fill()
+        } else {
+            NSColor.clear.setFill()
+            NSRect(x: 0, y: 0, width: size, height: size).fill()
+        }
+        let rep = src.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
+        let pw = rep.flatMap { $0.pixelsWide > 0 ? CGFloat($0.pixelsWide) : nil } ?? src.size.width
+        let ph = rep.flatMap { $0.pixelsHigh > 0 ? CGFloat($0.pixelsHigh) : nil } ?? src.size.height
+        let srcSize = CGSize(width: max(pw, 1), height: max(ph, 1))
+        let scale = min((size - pad * 2) / srcSize.width, (size - pad * 2) / srcSize.height)
+        let drawW = srcSize.width * scale
+        let drawH = srcSize.height * scale
+        let drawX = (size - drawW) / 2
+        let drawY = (size - drawH) / 2
+        src.draw(in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH),
+                 from: NSRect(origin: .zero, size: srcSize),
+                 operation: .sourceOver, fraction: 1.0)
+        result.unlockFocus()
+        return result
+    }
+
+    private func hasTransparency(_ data: Data) -> Bool {
+        let bytes = [UInt8](data.prefix(4))
+        // JPEGs never have alpha
+        if bytes.starts(with: [0xFF, 0xD8]) { return false }
+        guard let image = NSImage(data: data),
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return false }
+        let ai = cgImage.alphaInfo
+        guard ai != .none, ai != .noneSkipFirst, ai != .noneSkipLast else { return false }
+        let side = 32; let bpr = side * 4
+        var pixels = [UInt8](repeating: 0, count: side * bpr)
+        guard let ctx = CGContext(data: &pixels, width: side, height: side,
+                                  bitsPerComponent: 8, bytesPerRow: bpr,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: side, height: side))
+        for i in stride(from: 3, to: pixels.count, by: 4) { if pixels[i] < 240 { return true } }
+        return false
+    }
+
     private func scheduleFaviconFetch(for urlString: String, debounce: Bool = true) {
         fetchToken &+= 1
         let token = fetchToken
@@ -167,8 +220,8 @@ public class SetupWindowController: NSWindowController {
                 self.faviconData = result?.0
                 if self.iconLabel.stringValue == "Fetching..." {
                     if self.customIconPath == nil {
-                        if let data = result?.0, let img = NSImage(data: data) {
-                            self.iconImageView.image = img
+                        if let data = result?.0, let preview = self.makePreview(from: data) {
+                            self.iconImageView.image = preview
                             self.iconLabel.stringValue = "Auto (favicon)"
                         } else {
                             self.iconImageView.image = self.defaultIcon()

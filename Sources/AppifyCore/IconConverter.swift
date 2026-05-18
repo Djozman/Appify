@@ -97,31 +97,21 @@ public struct IconConverter {
 
     // MARK: - Transparency detection
 
-    /// Returns true if the image has meaningful transparent pixels (alpha < 255 in any corner/sample).
-    private static func hasTransparency(_ data: Data) -> Bool {
-        let ext = imageExtension(for: data)
-        // JPEGs never have alpha
-        if ext == "jpg" || ext == "bmp" { return false }
+    static func hasTransparency(_ data: Data) -> Bool {
+        let bytes = [UInt8](data.prefix(2))
+        if bytes.starts(with: [0xFF, 0xD8]) { return false } // JPEG
         guard let image = NSImage(data: data),
               let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return false }
-        guard let alphaInfo = cgImage.colorSpace.flatMap({ _ in Optional(cgImage.alphaInfo) }),
-              alphaInfo != .none, alphaInfo != .noneSkipFirst, alphaInfo != .noneSkipLast
-        else { return false }
-        // Sample a 32x32 thumbnail for speed
-        let side = 32
-        let bytesPerRow = side * 4
-        var pixels = [UInt8](repeating: 0, count: side * bytesPerRow)
-        guard let ctx = CGContext(
-            data: &pixels, width: side, height: side,
-            bitsPerComponent: 8, bytesPerRow: bytesPerRow,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return false }
+        let ai = cgImage.alphaInfo
+        guard ai != .none, ai != .noneSkipFirst, ai != .noneSkipLast else { return false }
+        let side = 32; let bpr = side * 4
+        var pixels = [UInt8](repeating: 0, count: side * bpr)
+        guard let ctx = CGContext(data: &pixels, width: side, height: side,
+                                  bitsPerComponent: 8, bytesPerRow: bpr,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
         ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: side, height: side))
-        // Check if any pixel has alpha < 240 (not fully opaque)
-        for i in stride(from: 3, to: pixels.count, by: 4) {
-            if pixels[i] < 240 { return true }
-        }
+        for i in stride(from: 3, to: pixels.count, by: 4) { if pixels[i] < 240 { return true } }
         return false
     }
 
@@ -160,8 +150,8 @@ public struct IconConverter {
     }
 
     /// Composite the image onto a square canvas.
-    /// If the source has transparency, adds a white rounded-rect background
-    /// (matching macOS app icon style) so the final icon looks consistent.
+    /// Transparent sources get a white rounded-rect background (macOS icon style).
+    /// contentFraction=0.90 so the logo nearly fills the card.
     private static func squarePadded(_ image: NSImage, size: Int, sourceData: Data? = nil) -> NSImage {
         let canvas = CGFloat(size)
         let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
@@ -169,11 +159,9 @@ public struct IconConverter {
         let h = rep.flatMap { $0.pixelsHigh > 0 ? CGFloat($0.pixelsHigh) : nil } ?? image.size.height
         let srcSize = CGSize(width: max(w, 1), height: max(h, 1))
 
-        // Detect transparency from original data (more reliable than NSImage)
         let transparent = sourceData.map { hasTransparency($0) } ?? false
-
-        // Padding: more padding when we add a background card, less otherwise
-        let contentFraction: CGFloat = transparent ? 0.72 : 0.85
+        // 0.90 content fill when we add a white card — logo nearly fills the squircle
+        let contentFraction: CGFloat = transparent ? 0.90 : 0.85
         let maxContent = canvas * contentFraction
         let scale = min(maxContent / srcSize.width, maxContent / srcSize.height)
         let drawW = srcSize.width * scale
@@ -183,18 +171,15 @@ public struct IconConverter {
 
         let result = NSImage(size: NSSize(width: canvas, height: canvas))
         result.lockFocus()
-
-        // Transparent source: paint a white rounded-rect card (macOS-style)
         if transparent {
             NSColor.white.setFill()
-            let cornerRadius = canvas * 0.22   // matches macOS icon rounding
+            let r = canvas * 0.22
             NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: canvas, height: canvas),
-                         xRadius: cornerRadius, yRadius: cornerRadius).fill()
+                         xRadius: r, yRadius: r).fill()
         } else {
             NSColor.clear.setFill()
             NSRect(x: 0, y: 0, width: canvas, height: canvas).fill()
         }
-
         image.draw(in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH),
                    from: NSRect(origin: .zero, size: srcSize),
                    operation: .sourceOver, fraction: 1.0)
