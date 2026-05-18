@@ -213,7 +213,7 @@ public class SetupWindowController: NSWindowController {
             return
         }
         iconLabel.stringValue = "Fetching..."
-        let url = raw.hasPrefix("http") ? raw : "https://" + url
+        let url = raw.hasPrefix("http") ? raw : "https://" + raw
         scheduleFaviconFetch(for: url, debounce: false)
     }
 
