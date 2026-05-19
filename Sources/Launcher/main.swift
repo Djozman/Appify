@@ -26,7 +26,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 {
     var window: NSWindow?
     var webView: WKWebView!
-
     private var backButton: NSButton?
     private var forwardButton: NSButton?
     private var reloadButton: NSButton?
@@ -34,8 +33,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if useBrowser {
-            // Fall through to native WKWebView — the toolbar has an
-            // "Open in browser" button for escaping to Chrome/Firefox.
+            // Open in default browser, then keep app alive so its icon
+            // stays in the Dock. Clicking the Dock icon re-opens the URL.
+            if let url = URL(string: urlString) {
+                NSWorkspace.shared.open(url)
+            }
+            // Don't exit — stay alive. applicationShouldHandleReopen
+            // will re-open the URL on Dock click.
+            return
         }
         webView = makeWebView()
         openWindow()
@@ -51,7 +56,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.allowsBackForwardNavigationGestures = true
         wv.allowsMagnification = true
-
         wv.addObserver(
             self, forKeyPath: #keyPath(WKWebView.canGoBack), options: [], context: &kvoContext)
         wv.addObserver(
@@ -59,7 +63,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         wv.addObserver(
             self, forKeyPath: #keyPath(WKWebView.isLoading), options: [], context: &kvoContext)
         wv.addObserver(self, forKeyPath: #keyPath(WKWebView.url), options: [], context: &kvoContext)
-
         if let url = URL(string: urlString) { wv.load(URLRequest(url: url)) }
         return wv
     }
@@ -94,7 +97,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             backing: .buffered, defer: false)
         win.title = appName
         win.contentView = webView
-
         let toolbar = NSToolbar(identifier: "AppifyToolbar")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
@@ -102,7 +104,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         toolbar.showsBaselineSeparator = true
         win.toolbar = toolbar
         win.toolbarStyle = .unified
-
         win.center()
         win.setFrameAutosaveName(appName)
         win.delegate = self
@@ -152,8 +153,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         return btn
     }
 
-    // ── Toolbar actions ───────────────────────────────────────────────
-
     @objc private func goBack() { webView.goBack() }
     @objc private func goForward() { webView.goForward() }
     @objc private func reloadOrStop() {
@@ -167,6 +166,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     // ── NSWindowDelegate ──────────────────────────────────────────────
 
     func windowWillClose(_ notification: Notification) {
+        if useBrowser { return }  // don't quit on close in browser mode
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoBack))
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoForward))
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.isLoading))
@@ -177,10 +177,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool)
         -> Bool
     {
-        if !flag {
+        if useBrowser {
+            // Re-open URL in default browser on Dock click
+            if let url = URL(string: urlString) { NSWorkspace.shared.open(url) }
+        } else if !flag {
             openWindow()
-            NSApp.activate(ignoringOtherApps: true)
         }
+        NSApp.activate(ignoringOtherApps: true)
         return true
     }
 
@@ -196,14 +199,14 @@ let delegate = AppDelegate()
 NSApplication.shared.delegate = delegate
 NSApp.setActivationPolicy(.regular)
 
-// App menu with Quit so Cmd+Q / Dock Quit work
+// ── Main menu with Quit so Cmd+Q works ────────────────────────────────
 let mainMenu = NSMenu()
 let appMenu = NSMenu(title: appName)
 appMenu.addItem(
     NSMenuItem(
         title: "Quit \(appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"
     ))
-let appMenuItem = NSMenuItem()
+let appMenuItem = NSMenuItem(title: appName, action: nil, keyEquivalent: "")
 appMenuItem.submenu = appMenu
 mainMenu.addItem(appMenuItem)
 let editMenu = NSMenu(title: "Edit")
@@ -213,7 +216,7 @@ editMenu.addItem(
     NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
 editMenu.addItem(
     NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
-let editMenuItem = NSMenuItem()
+let editMenuItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
 editMenuItem.submenu = editMenu
 mainMenu.addItem(editMenuItem)
 NSApp.mainMenu = mainMenu
