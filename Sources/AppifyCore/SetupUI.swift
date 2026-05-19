@@ -26,7 +26,31 @@ public struct SetupResult {
 private class SquircleImageView: NSView {
     let imageView = NSImageView()
     private let maskLayer = CAShapeLayer()
-    private let glossLayer = CAGradientLayer()
+    private let glossView = GlossOverlayView()
+
+    /// Transparent overlay that draws the Finder-style specular gradient.
+    private final class GlossOverlayView: NSView {
+        override func draw(_ dirtyRect: NSRect) {
+            super.draw(dirtyRect)
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+            let colors = [
+                NSColor.white.withAlphaComponent(0.40).cgColor,
+                NSColor.white.withAlphaComponent(0.06).cgColor,
+                NSColor.clear.cgColor,
+                NSColor.black.withAlphaComponent(0.10).cgColor
+            ] as CFArray
+            guard let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: colors,
+                locations: [0.0, 0.30, 0.55, 1.0]
+            ) else { return }
+            let start = CGPoint(x: bounds.minX + bounds.width * 0.15,
+                                y: bounds.minY + bounds.height * 0.85)
+            let end   = CGPoint(x: bounds.minX + bounds.width * 0.85,
+                                y: bounds.minY + bounds.height * 0.15)
+            ctx.drawLinearGradient(gradient, start: start, end: end, options: [])
+        }
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -38,21 +62,11 @@ private class SquircleImageView: NSView {
         imageView.autoresizingMask = [.width, .height]
         addSubview(imageView)
 
-        // Gloss overlay — mimics Finder's specular highlight (top-left bright,
-        // bottom-right dark).  Must be a sublayer of imageView so it renders
-        // *on top* of the image, not buried behind the NSImageView.
-        imageView.wantsLayer = true
-        glossLayer.frame = bounds
-        glossLayer.colors = [
-            NSColor.white.withAlphaComponent(0.38).cgColor,
-            NSColor.white.withAlphaComponent(0.06).cgColor,
-            NSColor.clear.cgColor,
-            NSColor.black.withAlphaComponent(0.10).cgColor
-        ]
-        glossLayer.locations = [0.0, 0.30, 0.55, 1.0]
-        glossLayer.startPoint = CGPoint(x: 0.15, y: 0.85)
-        glossLayer.endPoint   = CGPoint(x: 0.85, y: 0.15)
-        imageView.layer?.addSublayer(glossLayer)
+        // Gloss sits on top of the image as a sibling view — immune to
+        // NSImageView replacing its backing layer when .image changes.
+        glossView.frame = bounds
+        glossView.autoresizingMask = [.width, .height]
+        addSubview(glossView)
 
         // Shadow ring — subtle border effect without a hard border
         layer?.shadowColor = NSColor.black.withAlphaComponent(0.18).cgColor
@@ -66,7 +80,6 @@ private class SquircleImageView: NSView {
     override func layout() {
         super.layout()
         applySquircleMask()
-        glossLayer.frame = bounds
     }
 
     private func applySquircleMask() {
