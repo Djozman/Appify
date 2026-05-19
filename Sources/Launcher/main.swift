@@ -32,14 +32,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     private var kvoContext = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if useBrowser {
-            // Open in default browser, then keep app alive so its icon
-            // stays in the Dock. Clicking the Dock icon re-opens the URL.
-            if let url = URL(string: urlString) {
-                NSWorkspace.shared.open(url)
+        // Local monitor for Cmd+Q — fires regardless of menu state.
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.modifierFlags.contains(.command),
+                event.charactersIgnoringModifiers?.lowercased() == "q"
+            {
+                exit(0)
             }
-            // Don't exit — stay alive. applicationShouldHandleReopen
-            // will re-open the URL on Dock click.
+            return event
+        }
+
+        if useBrowser {
+            // Keep app alive so its icon stays in the Dock.
+            // Launch Chrome in --app mode for a clean chromeless window.
+            if let url = URL(string: urlString) {
+                let urlStr = url.absoluteString
+                let chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+                if FileManager.default.fileExists(atPath: chromePath) {
+                    let task = Process()
+                    task.launchPath = chromePath
+                    task.arguments = ["--app=\(urlStr)"]
+                    task.launch()
+                } else {
+                    NSWorkspace.shared.open(url)
+                }
+            }
             return
         }
         webView = makeWebView()
