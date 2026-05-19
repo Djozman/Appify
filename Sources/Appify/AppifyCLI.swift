@@ -1,5 +1,5 @@
-import Foundation
 import Cocoa
+import Foundation
 
 @main
 struct AppifyCLI {
@@ -18,7 +18,10 @@ struct AppifyCLI {
             fputs("UI failed to launch.\n", stderr)
             exit(1)
         }
-        guard !setup.cancelled else { print("Cancelled."); exit(0) }
+        guard !setup.cancelled else {
+            print("Cancelled.")
+            exit(0)
+        }
 
         print("")
         print("  Appify v1.2.0")
@@ -26,11 +29,13 @@ struct AppifyCLI {
         print("  App   : \(setup.name)")
         print("  URL   : \(setup.url)")
         print("  Size  : \(setup.width)x\(setup.height)")
-        if setup.menuBar { print("  Mode  : Menu bar") }
         print("  Output: \(setup.outputDir)")
         print("")
 
-        guard let launcherBinary = Bundle.module.url(forResource: "Resources/Launcher", withExtension: nil) else {
+        guard
+            let launcherBinary = Bundle.module.url(
+                forResource: "Resources/Launcher", withExtension: nil)
+        else {
             throw AppifyError.launcherNotFound
         }
 
@@ -67,8 +72,7 @@ struct AppifyCLI {
             width: setup.width, height: setup.height,
             iconPath: setup.iconPath,
             outputDir: setup.outputDir,
-            noFavicon: setup.iconPath != nil,
-            menuBar: setup.menuBar
+            noFavicon: setup.iconPath != nil
         )
         let builder = BundleBuilder(args: finalArgs, launcherBinary: launcherBinary)
         let appURL = try builder.build(iconURL: iconURL)
@@ -84,5 +88,7 @@ struct AppifyCLI {
 
 enum AppifyError: Error, LocalizedError {
     case launcherNotFound
-    var errorDescription: String? { "Launcher binary not found. Run './Scripts/install.sh' to rebuild." }
+    var errorDescription: String? {
+        "Launcher binary not found. Run './Scripts/install.sh' to rebuild."
+    }
 }

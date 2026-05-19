@@ -1,5 +1,5 @@
-import Cocoa
 import AppifyCore
+import Cocoa
 
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
@@ -12,8 +12,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
 
     func run() {
-        guard let setup = runSetupUI(url: "", name: "") else { NSApp.terminate(nil); return }
-        guard !setup.cancelled else { NSApp.terminate(nil); return }
+        guard let setup = runSetupUI(url: "", name: "") else {
+            NSApp.terminate(nil)
+            return
+        }
+        guard !setup.cancelled else {
+            NSApp.terminate(nil)
+            return
+        }
 
         guard let launcherBinary = launcherBinaryURL() else {
             showError("Launcher binary not found. Please reinstall Appify.")
@@ -48,8 +54,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             height: setup.height,
             iconPath: setup.iconPath,
             outputDir: setup.outputDir,
-            noFavicon: setup.iconPath != nil,
-            menuBar: setup.menuBar
+            noFavicon: setup.iconPath != nil
         )
 
         do {
@@ -74,7 +79,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let response = alert.runModal()
         switch response {
         case .alertFirstButtonReturn:
-            NSWorkspace.shared.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration())
+            NSWorkspace.shared.openApplication(
+                at: appURL, configuration: NSWorkspace.OpenConfiguration())
         case .alertSecondButtonReturn:
             NSWorkspace.shared.activateFileViewerSelecting([appURL])
         default: break

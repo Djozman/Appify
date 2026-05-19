@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 public struct BundleBuilder {
@@ -36,8 +37,9 @@ public struct BundleBuilder {
             format: .xml, options: 0
         )
         try plistData.write(to: contentsURL.appendingPathComponent("Info.plist"))
-        try "APPL????".write(to: contentsURL.appendingPathComponent("PkgInfo"),
-                            atomically: true, encoding: .utf8)
+        try "APPL????".write(
+            to: contentsURL.appendingPathComponent("PkgInfo"),
+            atomically: true, encoding: .utf8)
 
         if let iconURL = iconURL, fm.fileExists(atPath: iconURL.path) {
             try fm.copyItem(at: iconURL, to: resourcesURL.appendingPathComponent("icon.icns"))
@@ -51,7 +53,7 @@ public struct BundleBuilder {
             "CFBundleName": args.name,
             "CFBundleDisplayName": args.name,
             "CFBundleExecutable": "launcher",
-            "CFBundleIdentifier": "com.appify.\(sanitizeBundleId(args.name))",
+            "CFBundleIdentifier": "com.appify.\(sanitizeBundleId(args.name)).\(urlHash)",
             "CFBundleInfoDictionaryVersion": "6.0",
             "CFBundlePackageType": "APPL",
             "CFBundleShortVersionString": "1.0",
@@ -66,10 +68,6 @@ public struct BundleBuilder {
             "AppifyHeight": args.height,
         ]
         if hasIcon { plist["CFBundleIconFile"] = "icon" }
-        if args.menuBar {
-            plist["LSUIElement"] = true
-            plist["AppifyMenuBar"] = true
-        }
         return plist
     }
 
@@ -78,6 +76,13 @@ public struct BundleBuilder {
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
             .joined(separator: "-")
+    }
+
+    /// Returns the first 8 hex characters of the SHA-256 hash of `args.url`.
+    /// Deterministic — same URL always produces the same hash.
+    private var urlHash: String {
+        let digest = SHA256.hash(data: Data(args.url.utf8))
+        return digest.prefix(4).map { String(format: "%02x", $0) }.joined()
     }
 
     private func setExecutable(at url: URL) throws {

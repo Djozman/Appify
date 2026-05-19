@@ -8,13 +8,18 @@ public struct CLIArgs {
     public let iconPath: String?
     public let outputDir: String
     public let noFavicon: Bool
-    public let menuBar: Bool
 
-    public init(url: String, name: String, width: Int, height: Int,
-                iconPath: String?, outputDir: String, noFavicon: Bool, menuBar: Bool) {
-        self.url = url; self.name = name; self.width = width; self.height = height
-        self.iconPath = iconPath; self.outputDir = outputDir
-        self.noFavicon = noFavicon; self.menuBar = menuBar
+    public init(
+        url: String, name: String, width: Int, height: Int,
+        iconPath: String?, outputDir: String, noFavicon: Bool
+    ) {
+        self.url = url
+        self.name = name
+        self.width = width
+        self.height = height
+        self.iconPath = iconPath
+        self.outputDir = outputDir
+        self.noFavicon = noFavicon
     }
 }
 
@@ -25,32 +30,46 @@ public enum CLIError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .missingURL:           return "Usage: appify <url> [name] [options]\nRun 'appify --help' for full usage."
-        case .invalidURL(let url):  return "Invalid URL: \(url)"
-        case .unknownFlag(let f):   return "Unknown option: \(f)\nRun 'appify --help' for full usage."
+        case .missingURL:
+            return "Usage: appify <url> [name] [options]\nRun 'appify --help' for full usage."
+        case .invalidURL(let url): return "Invalid URL: \(url)"
+        case .unknownFlag(let f): return "Unknown option: \(f)\nRun 'appify --help' for full usage."
         }
     }
 }
 
 public func parseArgs(_ args: [String]) throws -> CLIArgs {
     var positional: [String] = []
-    var width = 1280; var height = 800
+    var width = 1280
+    var height = 800
     var iconPath: String? = nil
     var outputDir = "/Applications"
-    var noFavicon = false; var menuBar = false
+    var noFavicon = false
 
     var i = 1
     while i < args.count {
         let arg = args[i]
         switch arg {
-        case "--width":      i += 1; width = Int(args[i]) ?? 1280
-        case "--height":     i += 1; height = Int(args[i]) ?? 800
-        case "--icon":       i += 1; iconPath = args[i]
-        case "--output":     i += 1; outputDir = args[i]
+        case "--width":
+            i += 1
+            width = Int(args[i]) ?? 1280
+        case "--height":
+            i += 1
+            height = Int(args[i]) ?? 800
+        case "--icon":
+            i += 1
+            iconPath = args[i]
+        case "--output":
+            i += 1
+            outputDir = args[i]
         case "--no-favicon": noFavicon = true
-        case "--menu-bar":   menuBar = true
-        case "--help", "-h": printHelp(); exit(0)
-        case "--version":    print("appify v1.0.0"); exit(0)
+
+        case "--help", "-h":
+            printHelp()
+            exit(0)
+        case "--version":
+            print("appify v1.0.0")
+            exit(0)
         default:
             if arg.hasPrefix("--") { throw CLIError.unknownFlag(arg) }
             positional.append(arg)
@@ -74,26 +93,28 @@ public func parseArgs(_ args: [String]) throws -> CLIArgs {
         defaultName = ""
     }
 
-    return CLIArgs(url: url, name: defaultName, width: width, height: height,
-                  iconPath: iconPath, outputDir: outputDir,
-                  noFavicon: noFavicon, menuBar: menuBar)
+    return CLIArgs(
+        url: url, name: defaultName, width: width, height: height,
+        iconPath: iconPath, outputDir: outputDir,
+        noFavicon: noFavicon)
 }
 
 public func printHelp() {
-    print("""
-    appify - Turn any website into a macOS .app
+    print(
+        """
+        appify - Turn any website into a macOS .app
 
-    Usage:
-      appify <url> [name] [options]
+        Usage:
+          appify <url> [name] [options]
 
-    Options:
-      --width   <int>   Window width  (default: 1280)
-      --height  <int>   Window height (default: 800)
-      --icon    <path>  Path to .png or .icns icon
-      --output  <path>  Output directory (default: /Applications)
-      --no-favicon      Skip favicon fetch
-      --menu-bar        Menu bar app mode
-      --version         Print version
-      --help, -h        Show this message
-    """)
+        Options:
+          --width   <int>   Window width  (default: 1280)
+          --height  <int>   Window height (default: 800)
+          --icon    <path>  Path to .png or .icns icon
+          --output  <path>  Output directory (default: /Applications)
+          --no-favicon      Skip favicon fetch
+
+          --version         Print version
+          --help, -h        Show this message
+        """)
 }

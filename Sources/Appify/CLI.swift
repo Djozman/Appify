@@ -8,7 +8,6 @@ struct CLIArgs {
     let iconPath: String?
     let outputDir: String
     let noFavicon: Bool
-    let menuBar: Bool
 }
 
 enum CLIError: Error, LocalizedError {
@@ -35,20 +34,30 @@ func parseArgs(_ args: [String]) throws -> CLIArgs {
     var iconPath: String? = nil
     var outputDir = "/Applications"  // default to system Applications
     var noFavicon = false
-    var menuBar = false
 
     var i = 1
     while i < args.count {
         let arg = args[i]
         switch arg {
-        case "--width":      i += 1; width = Int(args[i]) ?? 1280
-        case "--height":     i += 1; height = Int(args[i]) ?? 800
-        case "--icon":       i += 1; iconPath = args[i]
-        case "--output":     i += 1; outputDir = args[i]
+        case "--width":
+            i += 1
+            width = Int(args[i]) ?? 1280
+        case "--height":
+            i += 1
+            height = Int(args[i]) ?? 800
+        case "--icon":
+            i += 1
+            iconPath = args[i]
+        case "--output":
+            i += 1
+            outputDir = args[i]
         case "--no-favicon": noFavicon = true
-        case "--menu-bar":   menuBar = true
-        case "--help", "-h": printHelp(); exit(0)
-        case "--version":    print("appify v1.2.0"); exit(0)
+        case "--help", "-h":
+            printHelp()
+            exit(0)
+        case "--version":
+            print("appify v1.2.0")
+            exit(0)
         default:
             if arg.hasPrefix("--") { throw CLIError.unknownFlag(arg) }
             positional.append(arg)
@@ -78,34 +87,34 @@ func parseArgs(_ args: [String]) throws -> CLIArgs {
         url: url, name: defaultName,
         width: width, height: height,
         iconPath: iconPath, outputDir: outputDir,
-        noFavicon: noFavicon, menuBar: menuBar
+        noFavicon: noFavicon
     )
 }
 
 func printHelp() {
-    print("""
-    appify - Turn any website into a macOS .app
+    print(
+        """
+        appify - Turn any website into a macOS .app
 
-    Usage:
-      appify <url> [name] [options]
+        Usage:
+          appify <url> [name] [options]
 
-    Arguments:
-      url       Website URL  (e.g. https://monochrome.tf)
-      name      App name     (optional, can be set in the UI)
+        Arguments:
+          url       Website URL  (e.g. https://monochrome.tf)
+          name      App name     (optional, can be set in the UI)
 
-    Options:
-      --width   <int>   Default window width  (default: 1280)
-      --height  <int>   Default window height (default: 800)
-      --icon    <path>  Path to .png or .icns icon file
-      --output  <path>  Output directory      (default: /Applications)
-      --no-favicon      Skip auto-fetching the site favicon
-      --menu-bar        Pre-check menu bar mode in UI
-      --version         Print version and exit
-      --help, -h        Show this message
+        Options:
+          --width   <int>   Default window width  (default: 1280)
+          --height  <int>   Default window height (default: 800)
+          --icon    <path>  Path to .png or .icns icon file
+          --output  <path>  Output directory      (default: /Applications)
+          --no-favicon      Skip auto-fetching the site favicon
 
-    Examples:
-      appify https://monochrome.tf
-      appify https://notion.so "Notion"
-      appify https://linear.app --menu-bar
-    """)
+          --version         Print version and exit
+          --help, -h        Show this message
+
+        Examples:
+          appify https://monochrome.tf
+          appify https://notion.so "Notion"
+        """)
 }

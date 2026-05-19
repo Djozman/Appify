@@ -10,13 +10,31 @@ let appName = plist["CFBundleName"] as? String ?? "App"
 let urlString = plist["AppifyURL"] as? String ?? "https://example.com"
 let width = plist["AppifyWidth"] as? Int ?? 1280
 let height = plist["AppifyHeight"] as? Int ?? 800
-let isMenuBar = plist["AppifyMenuBar"] as? Bool ?? false
+
+// ── Toolbar item identifiers ──────────────────────────────────────────
+
+extension NSToolbarItem.Identifier {
+    static let back = NSToolbarItem.Identifier("back")
+    static let forward = NSToolbarItem.Identifier("forward")
+    static let reload = NSToolbarItem.Identifier("reload")
+    static let openInSafari = NSToolbarItem.Identifier("openInSafari")
+}
 
 // ── App Delegate ──────────────────────────────────────────────────────
 
-class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
+    NSToolbarDelegate
+{
     var window: NSWindow?
     var webView: WKWebView!
+
+    // Toolbar button references for state updates
+    private var backButton: NSButton?
+    private var forwardButton: NSButton?
+    private var reloadButton: NSButton?
+
+    // KVO context
+    private var kvoContext = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         webView = makeWebView()
@@ -31,38 +49,198 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.allowsBackForwardNavigationGestures = true
         wv.allowsMagnification = true
+
+        // Observe navigation state so we can enable/disable toolbar buttons
+        wv.addObserver(
+            self, forKeyPath: #keyPath(WKWebView.canGoBack),
+            options: [], context: &kvoContext)
+        wv.addObserver(
+            self, forKeyPath: #keyPath(WKWebView.canGoForward),
+            options: [], context: &kvoContext)
+        wv.addObserver(
+            self, forKeyPath: #keyPath(WKWebView.isLoading),
+            options: [], context: &kvoContext)
+        wv.addObserver(
+            self, forKeyPath: #keyPath(WKWebView.url),
+            options: [], context: &kvoContext)
+
         if let url = URL(string: urlString) { wv.load(URLRequest(url: url)) }
         return wv
     }
 
+    // ── KVO ───────────────────────────────────────────────────────────
+
+    override func observeValue(
+        forKeyPath keyPath: String?,
+        of object: Any?,
+        change: [NSKeyValueChangeKey: Any]?,
+        context: UnsafeMutableRawPointer?
+    ) {
+        guard context == &kvoContext else {
+            super.observeValue(
+                forKeyPath: keyPath, of: object,
+                change: change, context: context)
+            return
+        }
+        DispatchQueue.main.async { self.syncToolbarState() }
+    }
+
+    private func syncToolbarState() {
+        backButton?.isEnabled = webView.canGoBack
+        forwardButton?.isEnabled = webView.canGoForward
+        if webView.isLoading {
+            reloadButton?.image = NSImage(
+                systemSymbolName: "xmark",
+                accessibilityDescription: "Stop")
+            reloadButton?.toolTip = "Stop"
+        } else {
+            reloadButton?.image = NSImage(
+                systemSymbolName: "arrow.clockwise",
+                accessibilityDescription: "Reload")
+            reloadButton?.toolTip = "Reload"
+        }
+    }
+
+    // ── Window ────────────────────────────────────────────────────────
+
     private func openWindow() {
         let win = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [
+                .titled, .closable, .miniaturizable, .resizable,
+                .fullSizeContentView,
+            ],
             backing: .buffered,
             defer: false
         )
         win.title = appName
         win.contentView = webView
+
+        // Minimal toolbar: back · forward · reload · [space] · open in Safari
+        let toolbar = NSToolbar(identifier: "AppifyToolbar")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        toolbar.showsBaselineSeparator = true
+        win.toolbar = toolbar
+        win.toolbarStyle = .unified
+
         win.center()
         win.setFrameAutosaveName(appName)
         win.delegate = self
         win.makeKeyAndOrderFront(nil)
         window = win
+
+        syncToolbarState()
+    }
+
+    // ── NSToolbarDelegate ─────────────────────────────────────────────
+
+    func toolbar(
+        _ toolbar: NSToolbar,
+        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+
+        switch itemIdentifier {
+        case .back:
+            let btn = toolbarButton("chevron.left", "Back", #selector(goBack))
+            backButton = btn
+            item.view = btn
+            item.label = "Back"
+
+        case .forward:
+            let btn = toolbarButton("chevron.right", "Forward", #selector(goForward))
+            forwardButton = btn
+            item.view = btn
+            item.label = "Forward"
+
+        case .reload:
+            let btn = toolbarButton("arrow.clockwise", "Reload", #selector(reloadOrStop))
+            reloadButton = btn
+            item.view = btn
+            item.label = "Reload"
+
+        case .openInSafari:
+            let btn = toolbarButton(
+                "safari", "Open in Safari",
+                #selector(openInSafari))
+            item.view = btn
+            item.label = "Open in Safari"
+
+        default:
+            return nil
+        }
+        return item
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar)
+        -> [NSToolbarItem.Identifier]
+    {
+        [.back, .forward, .reload, .flexibleSpace, .openInSafari]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar)
+        -> [NSToolbarItem.Identifier]
+    {
+        [.back, .forward, .reload, .flexibleSpace, .openInSafari]
+    }
+
+    /// Convenience: create an NSButton wired to an action, suitable for a
+    /// toolbar item view.
+    private func toolbarButton(
+        _ symbolName: String, _ toolTip: String,
+        _ action: Selector
+    ) -> NSButton {
+        let img = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: toolTip)!
+        let btn = NSButton(image: img, target: self, action: action)
+        btn.bezelStyle = .texturedRounded
+        btn.toolTip = toolTip
+        return btn
+    }
+
+    // ── Toolbar actions ───────────────────────────────────────────────
+
+    @objc private func goBack() {
+        webView.goBack()
+    }
+
+    @objc private func goForward() {
+        webView.goForward()
+    }
+
+    @objc private func reloadOrStop() {
+        if webView.isLoading {
+            webView.stopLoading()
+        } else {
+            webView.reload()
+        }
+    }
+
+    @objc private func openInSafari() {
+        let targetURL = webView.url ?? URL(string: urlString)!
+        NSWorkspace.shared.open(targetURL)
     }
 
     // ── NSWindowDelegate ──────────────────────────────────────────────
 
     func windowWillClose(_ notification: Notification) {
-        guard !isMenuBar else { return }
+        webView.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoBack))
+        webView.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoForward))
+        webView.removeObserver(self, forKeyPath: #keyPath(WKWebView.isLoading))
+        webView.removeObserver(self, forKeyPath: #keyPath(WKWebView.url))
         exit(0)
     }
 
     // ── NSApplicationDelegate ─────────────────────────────────────────
 
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool)
-        -> Bool
-    {
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
         if !flag {
             openWindow()
             NSApp.activate(ignoringOtherApps: true)
@@ -70,15 +248,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return true
     }
 
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    func applicationShouldTerminate(_ sender: NSApplication)
+        -> NSApplication.TerminateReply
+    {
         webView?.stopLoading()
         exit(0)
     }
 
-    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
+        true
+    }
 }
 
 let delegate = AppDelegate()
 NSApplication.shared.delegate = delegate
-NSApp.setActivationPolicy(isMenuBar ? .accessory : .regular)
+NSApp.setActivationPolicy(.regular)
 NSApp.run()

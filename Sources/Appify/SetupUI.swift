@@ -8,19 +8,16 @@ struct SetupResult {
     let width: Int
     let height: Int
     let outputDir: String
-    let menuBar: Bool
     var cancelled: Bool = false
 }
 
 class SetupWindowController: NSWindowController {
-    private let urlField      = NSTextField()
-    private let nameField     = NSTextField()
+    private let urlField = NSTextField()
+    private let nameField = NSTextField()
     private let iconImageView = NSImageView()
-    private let iconLabel     = NSTextField(labelWithString: "Auto (favicon)")
-    private let widthField    = NSTextField()
-    private let heightField   = NSTextField()
-    private let menuBarCheck  = NSButton(checkboxWithTitle: "Run as menu bar app (no Dock icon)", target: nil, action: nil)
-
+    private let iconLabel = NSTextField(labelWithString: "Auto (favicon)")
+    private let widthField = NSTextField()
+    private let heightField = NSTextField()
     private var customIconPath: String? = nil
     private var faviconData: Data? = nil
     private var fetchTask: Task<Void, Never>?
@@ -36,7 +33,7 @@ class SetupWindowController: NSWindowController {
         )
         win.title = "Appify — Create App"
         win.center()
-        win.level = .floating   // ensure it appears above terminal
+        win.level = .floating  // ensure it appears above terminal
         self.init(window: win)
         buildUI(url: url, name: name)
     }
@@ -61,7 +58,8 @@ class SetupWindowController: NSWindowController {
         iconLabel.alignment = .center
         content.addSubview(iconLabel)
 
-        let chooseBtn = NSButton(title: "Choose Image...", target: self, action: #selector(chooseIcon))
+        let chooseBtn = NSButton(
+            title: "Choose Image...", target: self, action: #selector(chooseIcon))
         chooseBtn.frame = NSRect(x: 12, y: 210, width: 104, height: 26)
         chooseBtn.bezelStyle = .rounded
         chooseBtn.font = .systemFont(ofSize: 12)
@@ -106,9 +104,6 @@ class SetupWindowController: NSWindowController {
         heightField.placeholderString = "Height"
         content.addSubview(heightField)
 
-        menuBarCheck.frame = NSRect(x: rightX, y: 200, width: fieldW, height: 22)
-        content.addSubview(menuBarCheck)
-
         let divider = NSBox()
         divider.boxType = .separator
         divider.frame = NSRect(x: 20, y: 60, width: 440, height: 1)
@@ -131,7 +126,9 @@ class SetupWindowController: NSWindowController {
     }
 
     @discardableResult
-    private func addLabel(_ text: String, x: CGFloat, y: CGFloat, w: CGFloat, to view: NSView) -> NSTextField {
+    private func addLabel(_ text: String, x: CGFloat, y: CGFloat, w: CGFloat, to view: NSView)
+        -> NSTextField
+    {
         let lbl = NSTextField(labelWithString: text)
         lbl.frame = NSRect(x: x, y: y, width: w, height: 18)
         lbl.font = .systemFont(ofSize: 12, weight: .medium)
@@ -144,7 +141,7 @@ class SetupWindowController: NSWindowController {
         fetchTask = Task { [weak self] in
             guard let self else { return }
             if !immediate {
-                try? await Task.sleep(nanoseconds: 600_000_000) // 0.6 s debounce
+                try? await Task.sleep(nanoseconds: 600_000_000)  // 0.6 s debounce
             }
             guard !Task.isCancelled else { return }
 
@@ -188,7 +185,8 @@ class SetupWindowController: NSWindowController {
         let url = raw.hasPrefix("http") ? raw : "https://" + raw
         if nameField.stringValue.isEmpty, let host = URL(string: url)?.host {
             let cleaned = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-            nameField.stringValue = cleaned.components(separatedBy: ".").first?.capitalized ?? cleaned
+            nameField.stringValue =
+                cleaned.components(separatedBy: ".").first?.capitalized ?? cleaned
         }
         scheduleFaviconFetch(for: url)
     }
@@ -227,7 +225,8 @@ class SetupWindowController: NSWindowController {
         let img = NSImage(size: size)
         img.lockFocus()
         NSColor.controlAccentColor.withAlphaComponent(0.15).setFill()
-        let path = NSBezierPath(roundedRect: NSRect(origin: .zero, size: size), xRadius: 16, yRadius: 16)
+        let path = NSBezierPath(
+            roundedRect: NSRect(origin: .zero, size: size), xRadius: 16, yRadius: 16)
         path.fill()
         NSImage(systemSymbolName: "globe", accessibilityDescription: nil)?
             .draw(in: NSRect(x: 16, y: 16, width: 48, height: 48))
@@ -236,8 +235,9 @@ class SetupWindowController: NSWindowController {
     }
 
     @objc private func cancel() {
-        result = SetupResult(url: "", name: "", iconPath: nil, width: 1280, height: 800,
-                             outputDir: "/Applications", menuBar: false, cancelled: true)
+        result = SetupResult(
+            url: "", name: "", iconPath: nil, width: 1280, height: 800,
+            outputDir: "/Applications", cancelled: true)
         NSApp.stopModal()
         window?.close()
     }
@@ -257,8 +257,7 @@ class SetupWindowController: NSWindowController {
             url: url, name: name, iconPath: customIconPath,
             width: Int(widthField.stringValue) ?? 1280,
             height: Int(heightField.stringValue) ?? 800,
-            outputDir: "/Applications",
-            menuBar: menuBarCheck.state == .on
+            outputDir: "/Applications"
         )
         NSApp.stopModal()
         window?.close()

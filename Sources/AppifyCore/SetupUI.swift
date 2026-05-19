@@ -9,12 +9,11 @@ public struct SetupResult {
     public let width: Int
     public let height: Int
     public let outputDir: String
-    public let menuBar: Bool
     public var cancelled: Bool
 
     public init(
         url: String, name: String, iconPath: String?, previewPNG: Data? = nil,
-        width: Int, height: Int, outputDir: String, menuBar: Bool, cancelled: Bool = false
+        width: Int, height: Int, outputDir: String, cancelled: Bool = false
     ) {
         self.url = url
         self.name = name
@@ -23,7 +22,6 @@ public struct SetupResult {
         self.width = width
         self.height = height
         self.outputDir = outputDir
-        self.menuBar = menuBar
         self.cancelled = cancelled
     }
 }
@@ -126,8 +124,6 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
     private let iconLabel = NSTextField(labelWithString: "Auto (favicon)")
     private let widthField = NSTextField()
     private let heightField = NSTextField()
-    private let menuBarCheck = NSButton(
-        checkboxWithTitle: "Run as menu bar app (no Dock icon)", target: nil, action: nil)
     private var customIconPath: String? = nil
     private var previewPNG: Data? = nil
     private var fetchToken: Int = 0
@@ -216,9 +212,6 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
         heightField.stringValue = "800"
         heightField.placeholderString = "Height"
         content.addSubview(heightField)
-
-        menuBarCheck.frame = NSRect(x: rightX, y: 200, width: fieldW, height: 22)
-        content.addSubview(menuBarCheck)
 
         let divider = NSBox()
         divider.boxType = .separator
@@ -421,7 +414,7 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
         result = SetupResult(
             url: "", name: "", iconPath: nil, previewPNG: nil,
             width: 1280, height: 800, outputDir: "/Applications",
-            menuBar: false, cancelled: true)
+            cancelled: true)
         NSApp.stopModal()
     }
 
@@ -429,7 +422,7 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
         result = SetupResult(
             url: "", name: "", iconPath: nil, previewPNG: nil,
             width: 1280, height: 800, outputDir: "/Applications",
-            menuBar: false, cancelled: true)
+            cancelled: true)
         NSApp.stopModal()
         window?.close()
     }
@@ -451,8 +444,7 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
             previewPNG: customIconPath == nil ? previewPNG : nil,
             width: Int(widthField.stringValue) ?? 1280,
             height: Int(heightField.stringValue) ?? 800,
-            outputDir: "/Applications",
-            menuBar: menuBarCheck.state == .on
+            outputDir: "/Applications"
         )
         NSApp.stopModal()
         window?.close()
