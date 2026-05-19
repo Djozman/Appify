@@ -21,10 +21,12 @@ public struct SetupResult {
     }
 }
 
-/// NSView subclass that clips its contents to a macOS-style continuous squircle.
+/// NSView subclass that clips its contents to a macOS-style continuous squircle
+/// and adds the same gloss/sheen overlay that Finder renders on app icons.
 private class SquircleImageView: NSView {
     let imageView = NSImageView()
     private let maskLayer = CAShapeLayer()
+    private let glossLayer = CAGradientLayer()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -35,6 +37,20 @@ private class SquircleImageView: NSView {
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.autoresizingMask = [.width, .height]
         addSubview(imageView)
+
+        // Gloss overlay — mimics Finder's specular highlight (top-left bright,
+        // bottom-right dark).  Clipped to the squircle by the shared mask.
+        glossLayer.frame = bounds
+        glossLayer.colors = [
+            NSColor.white.withAlphaComponent(0.38).cgColor,
+            NSColor.white.withAlphaComponent(0.06).cgColor,
+            NSColor.clear.cgColor,
+            NSColor.black.withAlphaComponent(0.10).cgColor
+        ]
+        glossLayer.locations = [0.0, 0.30, 0.55, 1.0]
+        glossLayer.startPoint = CGPoint(x: 0.15, y: 0.85)
+        glossLayer.endPoint   = CGPoint(x: 0.85, y: 0.15)
+        layer?.addSublayer(glossLayer)
 
         // Shadow ring — subtle border effect without a hard border
         layer?.shadowColor = NSColor.black.withAlphaComponent(0.18).cgColor
@@ -48,6 +64,7 @@ private class SquircleImageView: NSView {
     override func layout() {
         super.layout()
         applySquircleMask()
+        glossLayer.frame = bounds
     }
 
     private func applySquircleMask() {
