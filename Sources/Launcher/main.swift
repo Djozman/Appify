@@ -30,6 +30,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.title = appName
         window.contentView = webView
         window.center()
@@ -43,9 +44,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Re-open the window when the Dock icon is clicked while the app is
-    /// running but has no visible windows.
+    /// running but has no visible windows.  Recreates the window if it was
+    /// released (e.g. isReleasedWhenClosed was left at the default).
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag {
+        if window == nil || window?.isVisible == false {
+            if window == nil {
+                // Window was released — rebuild it.
+                window = NSWindow(
+                    contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+                    styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                    backing: .buffered,
+                    defer: false
+                )
+                window.isReleasedWhenClosed = false
+                window.title = appName
+                window.contentView = webView ?? {
+                    let config = WKWebViewConfiguration()
+                    config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+                    let wv = WKWebView(frame: .zero, configuration: config)
+                    if let url = URL(string: urlString) { wv.load(URLRequest(url: url)) }
+                    webView = wv
+                    return wv
+                }()
+                window.setFrameAutosaveName(appName)
+            }
             window?.makeKeyAndOrderFront(nil)
         }
         NSApp.activate(ignoringOtherApps: true)
