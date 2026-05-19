@@ -358,9 +358,14 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
 
     // ── NSWindowDelegate ──────────────────────────────────────────────
 
-    /// Red X on the setup window → same as pressing Cancel.
+    /// Red X → stop modal session.  Must NOT call cancel() because
+    /// cancel() calls window?.close() which re-enters windowWillClose
+    /// → infinite recursion → stack overflow.
     public func windowWillClose(_ notification: Notification) {
-        cancel()
+        result = SetupResult(url: "", name: "", iconPath: nil, previewPNG: nil,
+                             width: 1280, height: 800, outputDir: "/Applications",
+                             menuBar: false, cancelled: true)
+        NSApp.stopModal()
     }
 
     @objc private func cancel() {
