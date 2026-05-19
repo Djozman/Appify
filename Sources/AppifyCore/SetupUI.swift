@@ -139,6 +139,12 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
         guard let content = window?.contentView else { return }
         content.wantsLayer = true
 
+        // Clicking anywhere in the window that isn't another control
+        // unfocuses the URL field so the name auto-completes.
+        let click = NSClickGestureRecognizer(target: self, action: #selector(unfocusURLField))
+        click.delaysPrimaryMouseButtonEvents = false
+        content.addGestureRecognizer(click)
+
         iconContainer.frame = NSRect(x: 24, y: 260, width: 80, height: 80)
         iconContainer.image = defaultIcon()
         content.addSubview(iconContainer)
@@ -322,6 +328,11 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
                 }
             }
         }
+    }
+
+    /// Click on empty space → unfocus URL field → triggers name auto-complete.
+    @objc private func unfocusURLField() {
+        window?.makeFirstResponder(nil)
     }
 
     @objc private func urlChanged() {
