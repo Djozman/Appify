@@ -8,84 +8,64 @@ let height    = Int(ProcessInfo.processInfo.environment["APPIFY_HEIGHT"] ?? "800
 let isMenuBar = ProcessInfo.processInfo.environment["APPIFY_MENUBAR"] == "1"
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    var window: NSWindow!
+    var window: NSWindow?
     var webView: WKWebView!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        webView = makeWebView()
+        openWindow()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func makeWebView() -> WKWebView {
         let config = WKWebViewConfiguration()
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
         config.mediaTypesRequiringUserActionForPlayback = []
+        let wv = WKWebView(frame: .zero, configuration: config)
+        wv.allowsBackForwardNavigationGestures = true
+        wv.allowsMagnification = true
+        if let url = URL(string: urlString) { wv.load(URLRequest(url: url)) }
+        return wv
+    }
 
-        webView = WKWebView(frame: .zero, configuration: config)
-        webView.allowsBackForwardNavigationGestures = true
-        webView.allowsMagnification = true
-
-        if let url = URL(string: urlString) {
-            webView.load(URLRequest(url: url))
-        }
-
-        window = NSWindow(
+    private func openWindow() {
+        let win = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        window.isReleasedWhenClosed = false
-        window.title = appName
-        window.contentView = webView
-        window.center()
-        window.setFrameAutosaveName(appName)
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        // Default isReleasedWhenClosed = true: window is deallocated on close,
+        // which lets applicationShouldTerminateAfterLastWindowClosed fire correctly.
+        win.title = appName
+        win.contentView = webView
+        win.center()
+        win.setFrameAutosaveName(appName)
+        win.makeKeyAndOrderFront(nil)
+        window = win
     }
 
+    // Quit when the last window is closed (normal app behaviour).
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return !isMenuBar
     }
 
-    /// Re-open the window when the Dock icon is clicked while the app is
-    /// running but has no visible windows.  Recreates the window if it was
-    /// released (e.g. isReleasedWhenClosed was left at the default).
+    // Dock icon clicked while no window is visible — reopen.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if window == nil || window?.isVisible == false {
-            if window == nil {
-                // Window was released — rebuild it.
-                window = NSWindow(
-                    contentRect: NSRect(x: 0, y: 0, width: width, height: height),
-                    styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-                    backing: .buffered,
-                    defer: false
-                )
-                window.isReleasedWhenClosed = false
-                window.title = appName
-                window.contentView = webView ?? {
-                    let config = WKWebViewConfiguration()
-                    config.preferences.setValue(true, forKey: "developerExtrasEnabled")
-                    let wv = WKWebView(frame: .zero, configuration: config)
-                    if let url = URL(string: urlString) { wv.load(URLRequest(url: url)) }
-                    webView = wv
-                    return wv
-                }()
-                window.setFrameAutosaveName(appName)
-            }
-            window?.makeKeyAndOrderFront(nil)
+        if !flag {
+            openWindow()
+            NSApp.activate(ignoringOtherApps: true)
         }
-        NSApp.activate(ignoringOtherApps: true)
         return true
     }
 
-    /// Always allow termination — stop the web view so it cannot block Quit.
+    // Ensure Quit always works — stop the web view so it can't block termination.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         webView?.stopLoading()
-        webView?.removeFromSuperview()
-        webView = nil
-        window?.close()
         return .terminateNow
     }
 
-    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
-        return true
-    }
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 }
 
 let delegate = AppDelegate()
