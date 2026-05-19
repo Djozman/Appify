@@ -28,6 +28,16 @@ public struct SetupResult {
     }
 }
 
+/// NSTextField that fires a closure on click.
+private class NameTextField: NSTextField {
+    var onClick: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event)
+        onClick?()
+    }
+}
+
 /// NSView subclass that clips its contents to a macOS-style continuous squircle
 /// and adds the same gloss/sheen overlay that Finder renders on app icons.
 private class SquircleImageView: NSView {
@@ -105,9 +115,9 @@ private class SquircleImageView: NSView {
     }
 }
 
-public class SetupWindowController: NSWindowController, NSWindowDelegate, NSTextFieldDelegate {
+public class SetupWindowController: NSWindowController, NSWindowDelegate {
     private let urlField = NSTextField()
-    private let nameField = NSTextField()
+    private let nameField = NameTextField()
     private let iconContainer = SquircleImageView()
     private var iconImageView: NSImageView { iconContainer.imageView }
     private let iconLabel = NSTextField(labelWithString: "Auto (favicon)")
@@ -179,7 +189,7 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
         nameField.frame = NSRect(x: rightX, y: 284, width: fieldW, height: 22)
         nameField.stringValue = name
         nameField.placeholderString = "My App"
-        nameField.delegate = self
+        nameField.onClick = { [weak self] in self?.autoCompleteNameFromURL() }
         content.addSubview(nameField)
 
         addLabel("Window Size", x: rightX, y: 260, w: 120, to: content)
@@ -335,11 +345,8 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
         scheduleFaviconFetch(for: url, debounce: true)
     }
 
-    /// When the user clicks into the name field, re-derive the name from
-    /// the URL.  This lets them change the URL then click the name to
-    /// auto-complete it again, even if it already has a value.
-    public func controlTextDidBeginEditing(_ notification: Notification) {
-        guard notification.object as? NSTextField == nameField else { return }
+    /// Clicking the name field always re-derives the name from the URL.
+    private func autoCompleteNameFromURL() {
         let raw = urlField.stringValue.trimmingCharacters(in: .whitespaces)
         guard !raw.isEmpty else { return }
         let url = raw.hasPrefix("http") ? raw : "https://" + raw
