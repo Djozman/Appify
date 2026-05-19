@@ -16,8 +16,20 @@ let useBrowser = plist["AppifyBrowser"] as? Bool ?? false
 
 if useBrowser {
     guard URL(string: urlString) != nil else { exit(1) }
-    openInAppMode(url: urlString)
-    exit(0)
+    // Briefly show the app's icon in the Dock so it doesn't look like
+    // we're launching the browser directly.
+    if let iconURL = Bundle.main.url(forResource: "icon", withExtension: "icns"),
+        let icon = NSImage(contentsOf: iconURL)
+    {
+        NSApp.applicationIconImage = icon
+    }
+    NSApp.setActivationPolicy(.regular)
+    NSApp.activate(ignoringOtherApps: true)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+        openInAppMode(url: urlString)
+        exit(0)
+    }
+    NSApp.run()  // needed so activate() actually shows the icon
 }
 
 /// Try each installed browser with its app-mode flag so the user gets a

@@ -4,18 +4,77 @@ import Cocoa
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
 
+// ── DEBUG: log every quit attempt ─────────────────────────────────────
+func logQuit(_ source: String) {
+    let msg = "\(Date()): QUIT from \(source)\n"
+    if let data = msg.data(using: .utf8) {
+        if let handle = try? FileHandle(forWritingTo: URL(fileURLWithPath: "/tmp/appify_quit.log"))
+        {
+            handle.seekToEndOfFile()
+            handle.write(data)
+            handle.closeFile()
+        } else {
+            try? data.write(to: URL(fileURLWithPath: "/tmp/appify_quit.log"))
+        }
+    }
+}
+
+logQuit("startup")
+
+// ── Quit observer (backup) ────────────────────────────────────────────
+NotificationCenter.default.addObserver(
+    forName: NSApplication.willTerminateNotification,
+    object: nil, queue: .main
+) { _ in
+    logQuit("willTerminateNotification")
+    exit(0)
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
+    @objc func handleQuitEvent(
+        _ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor
+    ) {
+        logQuit("AppleEvent-Quit")
+        exit(0)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        logQuit("applicationDidFinishLaunching")
+
+        // Register a direct Apple Event handler for Quit.  This catches
+        // Dock right-click → Quit before it even reaches NSApplication.
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleQuitEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kCoreEventClass),
+            andEventID: AEEventID(kAEQuitApplication))
+        logQuit("AppleEvent-registered")
+
+        // Ensure there's a main menu — the Dock uses it to validate Quit.
+        if NSApp.mainMenu == nil {
+            let mainMenu = NSMenu()
+            let appMenu = NSMenu(title: "Appify")
+            appMenu.addItem(
+                NSMenuItem(
+                    title: "Quit Appify", action: #selector(NSApplication.terminate(_:)),
+                    keyEquivalent: "q"))
+            let appMenuItem = NSMenuItem()
+            appMenuItem.submenu = appMenu
+            mainMenu.addItem(appMenuItem)
+            NSApp.mainMenu = mainMenu
+        }
+
         DispatchQueue.main.async { self.run() }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
+    func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool {
+        logQuit("applicationShouldTerminateAfterLastWindowClosed")
+        return true
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // Dock right-click → Quit hits here.  Stop any modal session so
-        // runSetupUI unblocks and we can exit cleanly.
-        NSApp.stopModal()
-        return .terminateNow
+        logQuit("applicationShouldTerminate")
+        exit(0)
     }
 
     func run() {
@@ -39,7 +98,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         var iconURL: URL? = nil
         if let customIcon = setup.iconPath {
-            // User picked a custom icon
             let iconPath = URL(fileURLWithPath: customIcon)
             if iconPath.pathExtension.lowercased() == "icns" {
                 iconURL = iconPath
@@ -47,7 +105,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 iconURL = IconConverter.convertPngToIcns(pngPath: iconPath, tempDir: tempDir)
             }
         } else if let png = setup.previewPNG {
-            // Use the exact PNG already shown in the preview — no re-fetch, no white card
             let pngPath = tempDir.appendingPathComponent("icon_preview.png")
             if (try? png.write(to: pngPath)) != nil {
                 iconURL = IconConverter.buildIcnsFromPNG(pngPath: pngPath, tempDir: tempDir)
