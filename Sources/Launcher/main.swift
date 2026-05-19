@@ -34,22 +34,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if useBrowser {
-            // Create a tiny invisible window to force the Dock to show
-            // our app's icon before Chrome takes over.
-            let dummy = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
-                styleMask: .borderless, backing: .buffered, defer: false)
-            dummy.isOpaque = false
-            dummy.backgroundColor = .clear
-            dummy.level = .floating
-            dummy.collectionBehavior = [.stationary, .canJoinAllSpaces]
-            dummy.orderFrontRegardless()
             NSApp.activate(ignoringOtherApps: true)
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                dummy.close()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 if let url = URL(string: urlString) {
-                    self.openInBrowser(url: url)
+                    // Use system default browser — no --app mode which
+                    // spawns a new Chrome Dock tile stealing our icon.
+                    NSWorkspace.shared.open(url)
                 }
                 exit(0)
             }
@@ -58,29 +48,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         webView = makeWebView()
         openWindow()
         NSApp.activate(ignoringOtherApps: true)
-    }
-
-    // ── Browser launcher ─────────────────────────────────────────────
-
-    private func openInBrowser(url: URL) {
-        let urlStr = url.absoluteString
-        let browsers: [(bundle: String, exe: String, args: [String])] = [
-            ("Google Chrome", "Google Chrome", ["--app=\(urlStr)"]),
-            ("Microsoft Edge", "Microsoft Edge", ["--app=\(urlStr)"]),
-            ("Brave Browser", "Brave Browser", ["--app=\(urlStr)"]),
-            ("Firefox", "firefox", ["--new-window", urlStr]),
-        ]
-        for (bundle, exe, args) in browsers {
-            let path = "/Applications/\(bundle).app/Contents/MacOS/\(exe)"
-            if FileManager.default.fileExists(atPath: path) {
-                let task = Process()
-                task.launchPath = path
-                task.arguments = args
-                task.launch()
-                return
-            }
-        }
-        NSWorkspace.shared.open(url)
     }
 
     // ── WKWebView ────────────────────────────────────────────────────
@@ -237,8 +204,16 @@ let delegate = AppDelegate()
 NSApplication.shared.delegate = delegate
 NSApp.setActivationPolicy(.regular)
 
-// Edit menu for Cmd+C/V/A/X
+// App menu with Quit so Cmd+Q / Dock Quit work
 let mainMenu = NSMenu()
+let appMenu = NSMenu(title: appName)
+appMenu.addItem(
+    NSMenuItem(
+        title: "Quit \(appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"
+    ))
+let appMenuItem = NSMenuItem()
+appMenuItem.submenu = appMenu
+mainMenu.addItem(appMenuItem)
 let editMenu = NSMenu(title: "Edit")
 editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
 editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
