@@ -39,7 +39,9 @@ private class SquircleImageView: NSView {
         addSubview(imageView)
 
         // Gloss overlay — mimics Finder's specular highlight (top-left bright,
-        // bottom-right dark).  Clipped to the squircle by the shared mask.
+        // bottom-right dark).  Must be a sublayer of imageView so it renders
+        // *on top* of the image, not buried behind the NSImageView.
+        imageView.wantsLayer = true
         glossLayer.frame = bounds
         glossLayer.colors = [
             NSColor.white.withAlphaComponent(0.38).cgColor,
@@ -50,7 +52,7 @@ private class SquircleImageView: NSView {
         glossLayer.locations = [0.0, 0.30, 0.55, 1.0]
         glossLayer.startPoint = CGPoint(x: 0.15, y: 0.85)
         glossLayer.endPoint   = CGPoint(x: 0.85, y: 0.15)
-        layer?.addSublayer(glossLayer)
+        imageView.layer?.addSublayer(glossLayer)
 
         // Shadow ring — subtle border effect without a hard border
         layer?.shadowColor = NSColor.black.withAlphaComponent(0.18).cgColor
