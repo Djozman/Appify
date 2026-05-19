@@ -42,6 +42,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return !isMenuBar
     }
 
+    /// Re-open the window when the Dock icon is clicked while the app is
+    /// running but has no visible windows.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            window?.makeKeyAndOrderFront(nil)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        return true
+    }
+
+    /// Always allow termination — stop the web view so it cannot block Quit.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        webView?.stopLoading()
+        webView?.removeFromSuperview()
+        webView = nil
+        window?.close()
+        return .terminateNow
+    }
+
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         return true
     }
