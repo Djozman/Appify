@@ -105,7 +105,7 @@ private class SquircleImageView: NSView {
     }
 }
 
-public class SetupWindowController: NSWindowController, NSWindowDelegate {
+public class SetupWindowController: NSWindowController, NSWindowDelegate, NSTextFieldDelegate {
     private let urlField = NSTextField()
     private let nameField = NSTextField()
     private let iconContainer = SquircleImageView()
@@ -172,6 +172,7 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
         urlField.placeholderString = "https://example.com"
         urlField.target = self
         urlField.action = #selector(urlChanged)
+        urlField.delegate = self
         (urlField.cell as? NSTextFieldCell)?.sendsActionOnEndEditing = true
         content.addSubview(urlField)
 
@@ -330,6 +331,13 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
         autoCompleteName(from: url)
         iconLabel.stringValue = "Fetching..."
         scheduleFaviconFetch(for: url, debounce: true)
+    }
+
+    /// Fires when the URL field loses focus — auto-completes the name
+    /// even if the URL text didn't change (unlike sendsActionOnEndEditing).
+    public func controlTextDidEndEditing(_ notification: Notification) {
+        guard notification.object as? NSTextField == urlField else { return }
+        urlChanged()
     }
 
     private func autoCompleteName(from url: String) {
