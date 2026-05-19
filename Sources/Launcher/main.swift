@@ -1,4 +1,5 @@
 import Cocoa
+import Darwin
 import WebKit
 
 // ── Read config from Info.plist ────────────────────────────────────────
@@ -30,10 +31,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     private var forwardButton: NSButton?
     private var reloadButton: NSButton?
     private var kvoContext = 0
+    private var chromePID: Int32?  // so we can kill Chrome when app quits
+    private var keyMonitor: Any?  // keep monitor alive
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Local monitor for Cmd+Q — fires regardless of menu state.
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.modifierFlags.contains(.command),
                 event.charactersIgnoringModifiers?.lowercased() == "q"
             {
@@ -43,8 +46,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
 
         if useBrowser {
-            // Keep app alive so its icon stays in the Dock.
-            // Launch Chrome in --app mode for a clean chromeless window.
+            // Launch Chrome in --app mode (chromeless window). Track its
+            // PID so we can close the window when our app quits.
             if let url = URL(string: urlString) {
                 let urlStr = url.absoluteString
                 let chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -53,6 +56,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                     task.launchPath = chromePath
                     task.arguments = ["--app=\(urlStr)"]
                     task.launch()
+                    chromePID = task.processIdentifier
                 } else {
                     NSWorkspace.shared.open(url)
                 }
@@ -183,7 +187,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     // ── NSWindowDelegate ──────────────────────────────────────────────
 
     func windowWillClose(_ notification: Notification) {
-        if useBrowser { return }  // don't quit on close in browser mode
+        if let pid = chromePID { kill(pid, SIGTERM) }
+        if useBrowser { return }
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoBack))
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoForward))
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.isLoading))
@@ -205,6 +210,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if let pid = chromePID { kill(pid, SIGTERM) }
         webView?.stopLoading()
         exit(0)
     }
