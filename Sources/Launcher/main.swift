@@ -34,10 +34,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if useBrowser {
-            // Open in default browser and quit — but first show the
-            // app's icon in the Dock briefly so it doesn't look like
-            // we're just launching the browser.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            // Activate the app first so its icon appears in the Dock.
+            // Then after a brief pause, launch the browser and exit.
+            NSApp.activate(ignoringOtherApps: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 if let url = URL(string: urlString) {
                     self.openInBrowser(url: url)
                 }
