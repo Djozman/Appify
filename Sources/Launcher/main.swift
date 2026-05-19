@@ -35,28 +35,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        win.delegate = self
-        // Default isReleasedWhenClosed = true lets the window be deallocated
-        // immediately on close, which avoids stale references.
         win.title = appName
         win.contentView = webView
         win.center()
         win.setFrameAutosaveName(appName)
+        win.delegate = self
         win.makeKeyAndOrderFront(nil)
         window = win
     }
 
-    // ── NSWindowDelegate ──────────────────────────────────────────────
-
-    /// Clicking the red X quits the app directly — no waiting for
-    /// applicationShouldTerminateAfterLastWindowClosed.
+    // Called the moment the user clicks X — quit immediately.
     func windowWillClose(_ notification: Notification) {
-        if !isMenuBar {
-            NSApp.terminate(nil)
-        }
+        guard !isMenuBar else { return }
+        NSApp.terminate(nil)
     }
-
-    // ── NSApplicationDelegate ─────────────────────────────────────────
 
     // Dock icon clicked while no window is visible — reopen.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -67,7 +59,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return true
     }
 
-    // Ensure Quit always works — stop the web view so it can't block termination.
+    // Stop the web view so it cannot block termination.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         webView?.stopLoading()
         return .terminateNow
