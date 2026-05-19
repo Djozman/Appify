@@ -116,7 +116,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         win.title = appName
         win.contentView = webView
 
-        // Minimal toolbar: back · forward · reload · [space] · open in Safari
+        // Minimal toolbar: back · forward · reload · [space] · open in browser
         let toolbar = NSToolbar(identifier: "AppifyToolbar")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
@@ -164,10 +164,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
         case .openInSafari:
             let btn = toolbarButton(
-                "safari", "Open in Safari",
+                "safari", "Open in browser",
                 #selector(openInSafari))
             item.view = btn
-            item.label = "Open in Safari"
+            item.label = "Open in browser"
 
         default:
             return nil
