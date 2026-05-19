@@ -12,12 +12,19 @@ public struct SetupResult {
     public let menuBar: Bool
     public var cancelled: Bool
 
-    public init(url: String, name: String, iconPath: String?, previewPNG: Data? = nil,
-                width: Int, height: Int, outputDir: String, menuBar: Bool, cancelled: Bool = false) {
-        self.url = url; self.name = name; self.iconPath = iconPath
+    public init(
+        url: String, name: String, iconPath: String?, previewPNG: Data? = nil,
+        width: Int, height: Int, outputDir: String, menuBar: Bool, cancelled: Bool = false
+    ) {
+        self.url = url
+        self.name = name
+        self.iconPath = iconPath
         self.previewPNG = previewPNG
-        self.width = width; self.height = height
-        self.outputDir = outputDir; self.menuBar = menuBar; self.cancelled = cancelled
+        self.width = width
+        self.height = height
+        self.outputDir = outputDir
+        self.menuBar = menuBar
+        self.cancelled = cancelled
     }
 }
 
@@ -36,13 +43,13 @@ private class SquircleImageView: NSView {
                 NSColor.white.withAlphaComponent(0.35).cgColor,
                 NSColor.white.withAlphaComponent(0.04).cgColor,
                 NSColor.clear.cgColor,
-                NSColor.black.withAlphaComponent(0.08).cgColor
+                NSColor.black.withAlphaComponent(0.08).cgColor,
             ]
             layer.locations = [0.0, 0.25, 0.50, 1.0]
             // In AppKit the layer coordinate system has (0,0) at bottom-left,
             // so (0,1) = top-left, (1,0) = bottom-right.
             layer.startPoint = CGPoint(x: 0.0, y: 1.0)
-            layer.endPoint   = CGPoint(x: 1.0, y: 0.0)
+            layer.endPoint = CGPoint(x: 1.0, y: 0.0)
             return layer
         }
     }
@@ -98,15 +105,16 @@ private class SquircleImageView: NSView {
     }
 }
 
-public class SetupWindowController: NSWindowController, NSWindowDelegate {
-    private let urlField      = NSTextField()
-    private let nameField     = NSTextField()
+public class SetupWindowController: NSWindowController, NSWindowDelegate, NSTextFieldDelegate {
+    private let urlField = NSTextField()
+    private let nameField = NSTextField()
     private let iconContainer = SquircleImageView()
     private var iconImageView: NSImageView { iconContainer.imageView }
-    private let iconLabel     = NSTextField(labelWithString: "Auto (favicon)")
-    private let widthField    = NSTextField()
-    private let heightField   = NSTextField()
-    private let menuBarCheck  = NSButton(checkboxWithTitle: "Run as menu bar app (no Dock icon)", target: nil, action: nil)
+    private let iconLabel = NSTextField(labelWithString: "Auto (favicon)")
+    private let widthField = NSTextField()
+    private let heightField = NSTextField()
+    private let menuBarCheck = NSButton(
+        checkboxWithTitle: "Run as menu bar app (no Dock icon)", target: nil, action: nil)
     private var customIconPath: String? = nil
     private var previewPNG: Data? = nil
     private var fetchToken: Int = 0
@@ -141,7 +149,8 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
         iconLabel.alignment = .center
         content.addSubview(iconLabel)
 
-        let chooseBtn = NSButton(title: "Choose Image...", target: self, action: #selector(chooseIcon))
+        let chooseBtn = NSButton(
+            title: "Choose Image...", target: self, action: #selector(chooseIcon))
         chooseBtn.frame = NSRect(x: 12, y: 210, width: 104, height: 26)
         chooseBtn.bezelStyle = .rounded
         chooseBtn.font = .systemFont(ofSize: 12)
@@ -154,7 +163,8 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
         resetBtn.toolTip = "Revert to auto-fetched favicon from the URL"
         content.addSubview(resetBtn)
 
-        let rightX: CGFloat = 140; let fieldW: CGFloat = 316
+        let rightX: CGFloat = 140
+        let fieldW: CGFloat = 316
 
         addLabel("Website URL", x: rightX, y: 356, w: fieldW, to: content)
         urlField.frame = NSRect(x: rightX, y: 332, width: fieldW, height: 22)
@@ -169,6 +179,7 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
         nameField.frame = NSRect(x: rightX, y: 284, width: fieldW, height: 22)
         nameField.stringValue = name
         nameField.placeholderString = "My App"
+        nameField.delegate = self
         content.addSubview(nameField)
 
         addLabel("Window Size", x: rightX, y: 260, w: 120, to: content)
@@ -189,7 +200,8 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
         menuBarCheck.frame = NSRect(x: rightX, y: 200, width: fieldW, height: 22)
         content.addSubview(menuBarCheck)
 
-        let divider = NSBox(); divider.boxType = .separator
+        let divider = NSBox()
+        divider.boxType = .separator
         divider.frame = NSRect(x: 20, y: 60, width: 440, height: 1)
         content.addSubview(divider)
 
@@ -212,7 +224,9 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @discardableResult
-    private func addLabel(_ text: String, x: CGFloat, y: CGFloat, w: CGFloat, to view: NSView) -> NSTextField {
+    private func addLabel(_ text: String, x: CGFloat, y: CGFloat, w: CGFloat, to view: NSView)
+        -> NSTextField
+    {
         let lbl = NSTextField(labelWithString: text)
         lbl.frame = NSRect(x: x, y: y, width: w, height: 18)
         lbl.font = .systemFont(ofSize: 12, weight: .medium)
@@ -230,14 +244,17 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
     /// Rescales favicon to requested pixel size with transparent background.
     private static func scaledPNG(faviconData: Data, pixels: Int) -> Data? {
         guard let src = CGImageSourceCreateWithData(faviconData as CFData, nil),
-              let cgSrc = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+            let cgSrc = CGImageSourceCreateImageAtIndex(src, 0, nil)
+        else { return nil }
         let colorSpace = CGColorSpaceCreateDeviceRGB()
-        guard let ctx = CGContext(
-            data: nil, width: pixels, height: pixels,
-            bitsPerComponent: 8, bytesPerRow: 0,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
+        guard
+            let ctx = CGContext(
+                data: nil, width: pixels, height: pixels,
+                bitsPerComponent: 8, bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        else { return nil }
 
         ctx.clear(CGRect(x: 0, y: 0, width: pixels, height: pixels))
 
@@ -257,7 +274,8 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
 
         guard let rendered = ctx.makeImage() else { return nil }
         let dest = NSMutableData()
-        guard let imgDest = CGImageDestinationCreateWithData(dest, "public.png" as CFString, 1, nil) else { return nil }
+        guard let imgDest = CGImageDestinationCreateWithData(dest, "public.png" as CFString, 1, nil)
+        else { return nil }
         CGImageDestinationAddImage(imgDest, rendered, nil)
         guard CGImageDestinationFinalize(imgDest) else { return nil }
         return dest as Data
@@ -267,7 +285,8 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
         fetchToken &+= 1
         let token = fetchToken
         let delay = debounce ? 0.6 : 0.0
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay) { [weak self] in
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay) {
+            [weak self] in
             guard let self, self.fetchToken == token else { return }
             guard let (faviconData, _) = FaviconFetcher.fetchWithSource(from: urlString) else {
                 self.updateUI { [weak self] in
@@ -281,13 +300,17 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
             }
             // Use the same compositing pipeline as the final .app icon so the
             // preview is pixel-identical to what ends up in the built bundle.
-            let processed = IconConverter.processedPNG(for: faviconData)
+            let processed =
+                IconConverter.processedPNG(for: faviconData)
                 ?? Self.scaledPNG(faviconData: faviconData, pixels: 1024)
             self.updateUI { [weak self] in
                 guard let self, self.fetchToken == token else { return }
                 self.previewPNG = processed
-                guard self.iconLabel.stringValue == "Fetching...", self.customIconPath == nil else { return }
-                let previewImg = IconConverter.previewImage(for: faviconData)
+                guard self.iconLabel.stringValue == "Fetching...", self.customIconPath == nil else {
+                    return
+                }
+                let previewImg =
+                    IconConverter.previewImage(for: faviconData)
                     ?? processed.flatMap { NSImage(data: $0) }
                     ?? NSImage(data: faviconData)
                 if let img = previewImg {
@@ -305,12 +328,29 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
         let raw = urlField.stringValue.trimmingCharacters(in: .whitespaces)
         guard !raw.isEmpty else { return }
         let url = raw.hasPrefix("http") ? raw : "https://" + raw
-        if nameField.stringValue.isEmpty, let host = URL(string: url)?.host {
-            let cleaned = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-            nameField.stringValue = cleaned.components(separatedBy: ".").first?.capitalized ?? cleaned
+        if nameField.stringValue.isEmpty {
+            autoCompleteName(from: url)
         }
         iconLabel.stringValue = "Fetching..."
         scheduleFaviconFetch(for: url, debounce: true)
+    }
+
+    /// When the user clicks into the name field, re-derive the name from
+    /// the URL.  This lets them change the URL then click the name to
+    /// auto-complete it again, even if it already has a value.
+    public func controlTextDidBeginEditing(_ notification: Notification) {
+        guard notification.object as? NSTextField == nameField else { return }
+        let raw = urlField.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty else { return }
+        let url = raw.hasPrefix("http") ? raw : "https://" + raw
+        autoCompleteName(from: url)
+    }
+
+    private func autoCompleteName(from url: String) {
+        guard let host = URL(string: url)?.host else { return }
+        let cleaned = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        nameField.stringValue =
+            cleaned.components(separatedBy: ".").first?.capitalized ?? cleaned
     }
 
     @objc private func chooseIcon() {
@@ -349,7 +389,8 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
         let img = NSImage(size: size)
         img.lockFocus()
         NSColor.controlAccentColor.withAlphaComponent(0.15).setFill()
-        NSBezierPath(roundedRect: NSRect(origin: .zero, size: size), xRadius: 16, yRadius: 16).fill()
+        NSBezierPath(roundedRect: NSRect(origin: .zero, size: size), xRadius: 16, yRadius: 16)
+            .fill()
         NSImage(systemSymbolName: "globe", accessibilityDescription: nil)?
             .draw(in: NSRect(x: 16, y: 16, width: 48, height: 48))
         img.unlockFocus()
@@ -363,16 +404,18 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
     /// → infinite recursion → stack overflow.
     public func windowWillClose(_ notification: Notification) {
         guard result == nil else { return }
-        result = SetupResult(url: "", name: "", iconPath: nil, previewPNG: nil,
-                             width: 1280, height: 800, outputDir: "/Applications",
-                             menuBar: false, cancelled: true)
+        result = SetupResult(
+            url: "", name: "", iconPath: nil, previewPNG: nil,
+            width: 1280, height: 800, outputDir: "/Applications",
+            menuBar: false, cancelled: true)
         NSApp.stopModal()
     }
 
     @objc private func cancel() {
-        result = SetupResult(url: "", name: "", iconPath: nil, previewPNG: nil,
-                             width: 1280, height: 800, outputDir: "/Applications",
-                             menuBar: false, cancelled: true)
+        result = SetupResult(
+            url: "", name: "", iconPath: nil, previewPNG: nil,
+            width: 1280, height: 800, outputDir: "/Applications",
+            menuBar: false, cancelled: true)
         NSApp.stopModal()
         window?.close()
     }
