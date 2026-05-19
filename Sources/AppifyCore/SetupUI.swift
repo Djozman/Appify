@@ -9,11 +9,13 @@ public struct SetupResult {
     public let width: Int
     public let height: Int
     public let outputDir: String
+    public let useBrowser: Bool
     public var cancelled: Bool
 
     public init(
         url: String, name: String, iconPath: String?, previewPNG: Data? = nil,
-        width: Int, height: Int, outputDir: String, cancelled: Bool = false
+        width: Int, height: Int, outputDir: String, useBrowser: Bool = false,
+        cancelled: Bool = false
     ) {
         self.url = url
         self.name = name
@@ -22,6 +24,7 @@ public struct SetupResult {
         self.width = width
         self.height = height
         self.outputDir = outputDir
+        self.useBrowser = useBrowser
         self.cancelled = cancelled
     }
 }
@@ -124,6 +127,10 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
     private let iconLabel = NSTextField(labelWithString: "Auto (favicon)")
     private let widthField = NSTextField()
     private let heightField = NSTextField()
+    private let browserRadio = NSButton(
+        radioButtonWithTitle: "Open in default browser", target: nil, action: nil)
+    private let webviewRadio = NSButton(
+        radioButtonWithTitle: "Native web view", target: nil, action: nil)
     private var customIconPath: String? = nil
     private var previewPNG: Data? = nil
     private var fetchToken: Int = 0
@@ -212,6 +219,17 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
         heightField.stringValue = "800"
         heightField.placeholderString = "Height"
         content.addSubview(heightField)
+
+        addLabel("Open using", x: rightX, y: 200, w: fieldW, to: content)
+        browserRadio.frame = NSRect(x: rightX, y: 175, width: fieldW, height: 22)
+        browserRadio.target = self
+        browserRadio.action = #selector(radioChanged)
+        webviewRadio.frame = NSRect(x: rightX, y: 155, width: fieldW, height: 22)
+        webviewRadio.target = self
+        webviewRadio.action = #selector(radioChanged)
+        webviewRadio.state = .on  // default
+        content.addSubview(browserRadio)
+        content.addSubview(webviewRadio)
 
         let divider = NSBox()
         divider.boxType = .separator
@@ -337,6 +355,12 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
         }
     }
 
+    /// Makes the radio buttons mutually exclusive.
+    @objc private func radioChanged(_ sender: NSButton) {
+        browserRadio.state = (sender == browserRadio) ? .on : .off
+        webviewRadio.state = (sender == webviewRadio) ? .on : .off
+    }
+
     @objc private func urlChanged() {
         let raw = urlField.stringValue.trimmingCharacters(in: .whitespaces)
         guard !raw.isEmpty else { return }
@@ -444,7 +468,8 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
             previewPNG: customIconPath == nil ? previewPNG : nil,
             width: Int(widthField.stringValue) ?? 1280,
             height: Int(heightField.stringValue) ?? 800,
-            outputDir: "/Applications"
+            outputDir: "/Applications",
+            useBrowser: browserRadio.state == .on
         )
         NSApp.stopModal()
         window?.close()

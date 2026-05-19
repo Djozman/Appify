@@ -10,6 +10,38 @@ let appName = plist["CFBundleName"] as? String ?? "App"
 let urlString = plist["AppifyURL"] as? String ?? "https://example.com"
 let width = plist["AppifyWidth"] as? Int ?? 1280
 let height = plist["AppifyHeight"] as? Int ?? 800
+let useBrowser = plist["AppifyBrowser"] as? Bool ?? false
+
+// ── Browser-only mode: open URL in app-mode window, then exit ─────────
+
+if useBrowser {
+    guard URL(string: urlString) != nil else { exit(1) }
+    openInAppMode(url: urlString)
+    exit(0)
+}
+
+/// Try each installed browser with its app-mode flag so the user gets a
+/// clean, chromeless window. Falls back to the system default browser.
+func openInAppMode(url: String) {
+    let browsers: [(bundle: String, exe: String, args: [String])] = [
+        ("Google Chrome", "Google Chrome", ["--app=\(url)"]),
+        ("Microsoft Edge", "Microsoft Edge", ["--app=\(url)"]),
+        ("Brave Browser", "Brave Browser", ["--app=\(url)"]),
+        ("Firefox", "firefox", ["--new-window", url]),
+    ]
+    for (bundle, exe, args) in browsers {
+        let path = "/Applications/\(bundle).app/Contents/MacOS/\(exe)"
+        if FileManager.default.fileExists(atPath: path) {
+            let task = Process()
+            task.launchPath = path
+            task.arguments = args
+            task.launch()
+            return
+        }
+    }
+    // Fallback: Safari or system default
+    NSWorkspace.shared.open(URL(string: url)!)
+}
 
 // ── Toolbar item identifiers ──────────────────────────────────────────
 
@@ -263,4 +295,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 let delegate = AppDelegate()
 NSApplication.shared.delegate = delegate
 NSApp.setActivationPolicy(.regular)
+
+// ── Edit menu so Cmd+C/V/A/X work in WKWebView ───────────────────────
+let mainMenu = NSMenu()
+let editMenu = NSMenu(title: "Edit")
+editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+editMenu.addItem(
+    NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+editMenu.addItem(
+    NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+let editMenuItem = NSMenuItem()
+editMenuItem.submenu = editMenu
+mainMenu.addItem(editMenuItem)
+NSApp.mainMenu = mainMenu
+
 NSApp.run()

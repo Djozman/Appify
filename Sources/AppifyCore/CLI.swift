@@ -8,10 +8,12 @@ public struct CLIArgs {
     public let iconPath: String?
     public let outputDir: String
     public let noFavicon: Bool
+    public let useBrowser: Bool
 
     public init(
         url: String, name: String, width: Int, height: Int,
-        iconPath: String?, outputDir: String, noFavicon: Bool
+        iconPath: String?, outputDir: String, noFavicon: Bool,
+        useBrowser: Bool = false
     ) {
         self.url = url
         self.name = name
@@ -20,6 +22,7 @@ public struct CLIArgs {
         self.iconPath = iconPath
         self.outputDir = outputDir
         self.noFavicon = noFavicon
+        self.useBrowser = useBrowser
     }
 }
 

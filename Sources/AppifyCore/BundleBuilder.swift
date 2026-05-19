@@ -66,6 +66,7 @@ public struct BundleBuilder {
             "AppifyURL": args.url,
             "AppifyWidth": args.width,
             "AppifyHeight": args.height,
+            "AppifyBrowser": args.useBrowser,
         ]
         if hasIcon { plist["CFBundleIconFile"] = "icon" }
         return plist

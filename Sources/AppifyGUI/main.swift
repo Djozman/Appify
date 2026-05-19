@@ -54,7 +54,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             height: setup.height,
             iconPath: setup.iconPath,
             outputDir: setup.outputDir,
-            noFavicon: setup.iconPath != nil
+            noFavicon: setup.iconPath != nil,
+            useBrowser: setup.useBrowser
         )
 
         do {
