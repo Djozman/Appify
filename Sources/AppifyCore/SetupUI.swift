@@ -362,6 +362,7 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
     /// cancel() calls window?.close() which re-enters windowWillClose
     /// → infinite recursion → stack overflow.
     public func windowWillClose(_ notification: Notification) {
+        guard result == nil else { return }
         result = SetupResult(url: "", name: "", iconPath: nil, previewPNG: nil,
                              width: 1280, height: 800, outputDir: "/Applications",
                              menuBar: false, cancelled: true)
