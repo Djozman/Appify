@@ -46,15 +46,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // ── NSWindowDelegate ──────────────────────────────────────────────
 
-    /// User clicked the red X — quit the app (unless it's a menu-bar app).
+    /// Red X → kill process.  NSApp.terminate gets stalled by WKWebView's
+    /// run loop; exit(0) is instant — same logic as Cancel's stopModal().
     func windowWillClose(_ notification: Notification) {
         guard !isMenuBar else { return }
-        NSApp.terminate(nil)
+        exit(0)
     }
 
     // ── NSApplicationDelegate ─────────────────────────────────────────
 
-    // Dock icon clicked while no window is visible — reopen.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
             openWindow()
@@ -63,18 +63,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return true
     }
 
-    /// Stop the web view and force-exit so Quit always works — whether
-    /// triggered by the red X, Cmd+Q, or right-click→Quit in the Dock.
-    /// NSApp.terminate can get stuck if WKWebView is hogging the run loop,
-    /// so we schedule an unconditional exit(0) as a last-resort backup.
+    /// Cmd+Q / Dock→Quit — kill process immediately.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         webView?.stopLoading()
-        webView?.removeFromSuperview()
-        webView = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            exit(0)
-        }
-        return .terminateNow
+        exit(0)
+        return .terminateNow  // unreachable, keeps compiler happy
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
