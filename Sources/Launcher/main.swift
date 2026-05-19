@@ -44,11 +44,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window = win
     }
 
-    // Called the moment the user clicks X — quit immediately.
+    // ── NSWindowDelegate ──────────────────────────────────────────────
+
+    /// User clicked the red X — quit the app (unless it's a menu-bar app).
     func windowWillClose(_ notification: Notification) {
         guard !isMenuBar else { return }
         NSApp.terminate(nil)
     }
+
+    // ── NSApplicationDelegate ─────────────────────────────────────────
 
     // Dock icon clicked while no window is visible — reopen.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -59,9 +63,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return true
     }
 
-    // Stop the web view so it cannot block termination.
+    /// Stop the web view and force-exit so Quit always works — whether
+    /// triggered by the red X, Cmd+Q, or right-click→Quit in the Dock.
+    /// NSApp.terminate can get stuck if WKWebView is hogging the run loop,
+    /// so we schedule an unconditional exit(0) as a last-resort backup.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         webView?.stopLoading()
+        webView?.removeFromSuperview()
+        webView = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            exit(0)
+        }
         return .terminateNow
     }
 
