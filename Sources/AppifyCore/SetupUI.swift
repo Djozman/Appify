@@ -98,7 +98,7 @@ private class SquircleImageView: NSView {
     }
 }
 
-public class SetupWindowController: NSWindowController {
+public class SetupWindowController: NSWindowController, NSWindowDelegate {
     private let urlField      = NSTextField()
     private let nameField     = NSTextField()
     private let iconContainer = SquircleImageView()
@@ -123,6 +123,7 @@ public class SetupWindowController: NSWindowController {
         win.center()
         win.level = .floating
         self.init(window: win)
+        window?.delegate = self
         buildUI(url: url, name: name)
     }
 
@@ -353,6 +354,13 @@ public class SetupWindowController: NSWindowController {
             .draw(in: NSRect(x: 16, y: 16, width: 48, height: 48))
         img.unlockFocus()
         return img
+    }
+
+    // ── NSWindowDelegate ──────────────────────────────────────────────
+
+    /// Red X on the setup window → same as pressing Cancel.
+    public func windowWillClose(_ notification: Notification) {
+        cancel()
     }
 
     @objc private func cancel() {
