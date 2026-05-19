@@ -11,20 +11,17 @@ struct FaviconFetcher {
 
     /// Sync wrapper — returns within 10 seconds max.
     static func fetchWithSource(from urlString: String) -> (Data, String)? {
+        final class Box: @unchecked Sendable { var value: (Data, String)? }
         let sem = DispatchSemaphore(value: 0)
-        let box = UnsafeMutablePointer<(Data, String)?>.allocate(capacity: 1)
-        box.initialize(to: nil)
+        let box = Box()
         let task = Task { @Sendable in
             let r = await fetchWithSourceAsync(from: urlString)
-            box.pointee = r
+            box.value = r
             sem.signal()
         }
         _ = sem.wait(timeout: .now() + 10)
         task.cancel()
-        let r = box.pointee
-        box.deinitialize(count: 1)
-        box.deallocate()
-        return r
+        return box.value
     }
 
     static func fetchWithSourceAsync(from urlString: String) async -> (Data, String)? {
@@ -68,14 +65,20 @@ struct FaviconFetcher {
         var results: [String] = []
 
         let touchIcons = extractLinkTags(html, rel: "apple-touch-icon")
-        results.append(contentsOf: touchIcons.sorted { sizeOf($0) > sizeOf($1) }.map { resolve($0, base: base) })
+        results.append(
+            contentsOf: touchIcons.sorted { sizeOf($0) > sizeOf($1) }.map {
+                resolve($0, base: base)
+            })
 
         let icons = extractLinkTags(html, rel: "icon")
         let svgIcons = icons.filter { $0.lowercased().contains(".svg") }
         let pngIcons = icons.filter { $0.lowercased().contains(".png") }
-        let otherIcons = icons.filter { !$0.lowercased().contains(".svg") && !$0.lowercased().contains(".png") }
+        let otherIcons = icons.filter {
+            !$0.lowercased().contains(".svg") && !$0.lowercased().contains(".png")
+        }
         results.append(contentsOf: svgIcons.map { resolve($0, base: base) })
-        results.append(contentsOf: pngIcons.sorted { sizeOf($0) > sizeOf($1) }.map { resolve($0, base: base) })
+        results.append(
+            contentsOf: pngIcons.sorted { sizeOf($0) > sizeOf($1) }.map { resolve($0, base: base) })
         results.append(contentsOf: otherIcons.map { resolve($0, base: base) })
 
         if let ogImage = extractMeta(html, property: "og:image") {
@@ -99,9 +102,11 @@ struct FaviconFetcher {
 
     private static func extractLinkTags(_ html: String, rel: String) -> [String] {
         var results: [String] = []
-        let p1 = "(?i)<link[^>]+rel=[\"'][^\"']*\(NSRegularExpression.escapedPattern(for: rel))[^\"']*[\"'][^>]+href=[\"']([^\"']+)[\"']"
+        let p1 =
+            "(?i)<link[^>]+rel=[\"'][^\"']*\(NSRegularExpression.escapedPattern(for: rel))[^\"']*[\"'][^>]+href=[\"']([^\"']+)[\"']"
         results.append(contentsOf: allMatches(p1, in: html, group: 1))
-        let p2 = "(?i)<link[^>]+href=[\"']([^\"']+)[\"'][^>]+rel=[\"'][^\"']*\(NSRegularExpression.escapedPattern(for: rel))[^\"']*[\"']"
+        let p2 =
+            "(?i)<link[^>]+href=[\"']([^\"']+)[\"'][^>]+rel=[\"'][^\"']*\(NSRegularExpression.escapedPattern(for: rel))[^\"']*[\"']"
         results.append(contentsOf: allMatches(p2, in: html, group: 1))
         return results
     }
@@ -122,12 +127,16 @@ struct FaviconFetcher {
 
     private static func isUsableImage(_ data: Data) -> Bool {
         if let text = String(data: data.prefix(512), encoding: .utf8),
-           text.contains("<svg") || text.contains("<?xml") {
+            text.contains("<svg") || text.contains("<?xml")
+        {
             return !text.lowercased().contains("<html")
         }
         guard data.count > 200 else { return false }
         if let str = String(data: data.prefix(50), encoding: .utf8),
-           str.lowercased().contains("<html") || str.lowercased().hasPrefix("<!") { return false }
+            str.lowercased().contains("<html") || str.lowercased().hasPrefix("<!")
+        {
+            return false
+        }
         return true
     }
 
@@ -144,8 +153,12 @@ struct FaviconFetcher {
     private static func fetchRaw(_ urlString: String) async -> Data? {
         guard let url = URL(string: urlString) else { return nil }
         var request = URLRequest(url: url, timeoutInterval: requestTimeout)
-        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
-        request.setValue("text/html,application/xhtml+xml,image/svg+xml,image/*,*/*", forHTTPHeaderField: "Accept")
+        request.setValue(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15",
+            forHTTPHeaderField: "User-Agent")
+        request.setValue(
+            "text/html,application/xhtml+xml,image/svg+xml,image/*,*/*",
+            forHTTPHeaderField: "Accept")
 
         return await withTaskGroup(of: Data?.self) { group in
             group.addTask {
@@ -175,8 +188,9 @@ struct FaviconFetcher {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let range = NSRange(text.startIndex..., in: text)
         guard let match = regex.firstMatch(in: text, range: range),
-              match.numberOfRanges > group,
-              let r = Range(match.range(at: group), in: text) else { return nil }
+            match.numberOfRanges > group,
+            let r = Range(match.range(at: group), in: text)
+        else { return nil }
         return String(text[r])
     }
 
@@ -184,7 +198,9 @@ struct FaviconFetcher {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         let range = NSRange(text.startIndex..., in: text)
         return regex.matches(in: text, range: range).compactMap {
-            guard $0.numberOfRanges > group, let r = Range($0.range(at: group), in: text) else { return nil }
+            guard $0.numberOfRanges > group, let r = Range($0.range(at: group), in: text) else {
+                return nil
+            }
             return String(text[r])
         }
     }
