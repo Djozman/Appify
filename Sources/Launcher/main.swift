@@ -34,16 +34,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if useBrowser {
-            NSApp.activate(ignoringOtherApps: true)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                if let url = URL(string: urlString) {
-                    // Use system default browser — no --app mode which
-                    // spawns a new Chrome Dock tile stealing our icon.
-                    NSWorkspace.shared.open(url)
-                }
-                exit(0)
-            }
-            return
+            // Fall through to native WKWebView — the toolbar has an
+            // "Open in browser" button for escaping to Chrome/Firefox.
         }
         webView = makeWebView()
         openWindow()
