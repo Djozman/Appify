@@ -30,25 +30,20 @@ private class SquircleImageView: NSView {
 
     /// Transparent overlay that draws the Finder-style specular gradient.
     private final class GlossOverlayView: NSView {
-        override func draw(_ dirtyRect: NSRect) {
-            super.draw(dirtyRect)
-            guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-            let colors = [
-                NSColor.white.withAlphaComponent(0.40).cgColor,
-                NSColor.white.withAlphaComponent(0.06).cgColor,
+        override func makeBackingLayer() -> CALayer {
+            let layer = CAGradientLayer()
+            layer.colors = [
+                NSColor.white.withAlphaComponent(0.35).cgColor,
+                NSColor.white.withAlphaComponent(0.04).cgColor,
                 NSColor.clear.cgColor,
-                NSColor.black.withAlphaComponent(0.10).cgColor
-            ] as CFArray
-            guard let gradient = CGGradient(
-                colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                colors: colors,
-                locations: [0.0, 0.30, 0.55, 1.0]
-            ) else { return }
-            let start = CGPoint(x: bounds.minX + bounds.width * 0.15,
-                                y: bounds.minY + bounds.height * 0.85)
-            let end   = CGPoint(x: bounds.minX + bounds.width * 0.85,
-                                y: bounds.minY + bounds.height * 0.15)
-            ctx.drawLinearGradient(gradient, start: start, end: end, options: [])
+                NSColor.black.withAlphaComponent(0.08).cgColor
+            ]
+            layer.locations = [0.0, 0.25, 0.50, 1.0]
+            // In AppKit the layer coordinate system has (0,0) at bottom-left,
+            // so (0,1) = top-left, (1,0) = bottom-right.
+            layer.startPoint = CGPoint(x: 0.0, y: 1.0)
+            layer.endPoint   = CGPoint(x: 1.0, y: 0.0)
+            return layer
         }
     }
 
