@@ -15,15 +15,9 @@ let useBrowser = plist["AppifyBrowser"] as? Bool ?? false
 // ── Browser-only mode: open URL in app-mode window, then exit ─────────
 
 if useBrowser {
-    guard let targetURL = URL(string: urlString) else { exit(1) }
-    // Briefly show the app's icon in the Dock so it doesn't look like
-    // we're launching the browser directly.
-    if let iconURL = Bundle.main.url(forResource: "icon", withExtension: "icns"),
-        let icon = NSImage(contentsOf: iconURL)
-    {
-        NSApp.applicationIconImage = icon
+    if let targetURL = URL(string: urlString) {
+        openInAppMode(url: targetURL)
     }
-    openInAppMode(url: targetURL)
     exit(0)
 }
 
