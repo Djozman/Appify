@@ -36,16 +36,8 @@ jobs:
         run: |
           cp /tmp/Launcher Sources/AppifyCore/Resources/Launcher
 
-      - name: Embed Launcher into Appify
-        run: |
-          mkdir -p Sources/Appify/Resources
-          cp /tmp/Launcher Sources/Appify/Resources/Launcher
-
       - name: Build AppifyCore
         run: swift build -c release --target AppifyCore
 
       - name: Build AppifyGUI
         run: swift build -c release --product AppifyGUI
-
-      - name: Build Appify (CLI)
-        run: swift build -c release --product Appify
