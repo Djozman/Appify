@@ -11,6 +11,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Dock right-click → Quit hits here.  Stop any modal session so
+        // runSetupUI unblocks and we can exit cleanly.
+        NSApp.stopModal()
+        return .terminateNow
+    }
+
     func run() {
         guard let setup = runSetupUI(url: "", name: "") else {
             NSApp.terminate(nil)
