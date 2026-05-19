@@ -34,10 +34,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if useBrowser {
-            // Activate the app first so its icon appears in the Dock.
-            // Then after a brief pause, launch the browser and exit.
+            // Create a tiny invisible window to force the Dock to show
+            // our app's icon before Chrome takes over.
+            let dummy = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
+                styleMask: .borderless, backing: .buffered, defer: false)
+            dummy.isOpaque = false
+            dummy.backgroundColor = .clear
+            dummy.level = .floating
+            dummy.collectionBehavior = [.stationary, .canJoinAllSpaces]
+            dummy.orderFrontRegardless()
             NSApp.activate(ignoringOtherApps: true)
+
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                dummy.close()
                 if let url = URL(string: urlString) {
                     self.openInBrowser(url: url)
                 }
