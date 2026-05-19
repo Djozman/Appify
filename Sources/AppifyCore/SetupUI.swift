@@ -28,16 +28,6 @@ public struct SetupResult {
     }
 }
 
-/// NSTextField that fires a closure on click.
-private class NameTextField: NSTextField {
-    var onClick: (() -> Void)?
-
-    override func mouseDown(with event: NSEvent) {
-        super.mouseDown(with: event)
-        onClick?()
-    }
-}
-
 /// NSView subclass that clips its contents to a macOS-style continuous squircle
 /// and adds the same gloss/sheen overlay that Finder renders on app icons.
 private class SquircleImageView: NSView {
@@ -117,7 +107,7 @@ private class SquircleImageView: NSView {
 
 public class SetupWindowController: NSWindowController, NSWindowDelegate {
     private let urlField = NSTextField()
-    private let nameField = NameTextField()
+    private let nameField = NSTextField()
     private let iconContainer = SquircleImageView()
     private var iconImageView: NSImageView { iconContainer.imageView }
     private let iconLabel = NSTextField(labelWithString: "Auto (favicon)")
@@ -189,7 +179,6 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
         nameField.frame = NSRect(x: rightX, y: 284, width: fieldW, height: 22)
         nameField.stringValue = name
         nameField.placeholderString = "My App"
-        nameField.onClick = { [weak self] in self?.autoCompleteNameFromURL() }
         content.addSubview(nameField)
 
         addLabel("Window Size", x: rightX, y: 260, w: 120, to: content)
@@ -338,19 +327,9 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate {
         let raw = urlField.stringValue.trimmingCharacters(in: .whitespaces)
         guard !raw.isEmpty else { return }
         let url = raw.hasPrefix("http") ? raw : "https://" + raw
-        if nameField.stringValue.isEmpty {
-            autoCompleteName(from: url)
-        }
+        autoCompleteName(from: url)
         iconLabel.stringValue = "Fetching..."
         scheduleFaviconFetch(for: url, debounce: true)
-    }
-
-    /// Clicking the name field always re-derives the name from the URL.
-    private func autoCompleteNameFromURL() {
-        let raw = urlField.stringValue.trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty else { return }
-        let url = raw.hasPrefix("http") ? raw : "https://" + raw
-        autoCompleteName(from: url)
     }
 
     private func autoCompleteName(from url: String) {
