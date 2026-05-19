@@ -15,7 +15,7 @@ let useBrowser = plist["AppifyBrowser"] as? Bool ?? false
 // ── Browser-only mode: open URL in app-mode window, then exit ─────────
 
 if useBrowser {
-    guard URL(string: urlString) != nil else { exit(1) }
+    guard let targetURL = URL(string: urlString) else { exit(1) }
     // Briefly show the app's icon in the Dock so it doesn't look like
     // we're launching the browser directly.
     if let iconURL = Bundle.main.url(forResource: "icon", withExtension: "icns"),
@@ -23,23 +23,19 @@ if useBrowser {
     {
         NSApp.applicationIconImage = icon
     }
-    NSApp.setActivationPolicy(.regular)
-    NSApp.activate(ignoringOtherApps: true)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-        openInAppMode(url: urlString)
-        exit(0)
-    }
-    NSApp.run()  // needed so activate() actually shows the icon
+    openInAppMode(url: targetURL)
+    exit(0)
 }
 
 /// Try each installed browser with its app-mode flag so the user gets a
 /// clean, chromeless window. Falls back to the system default browser.
-func openInAppMode(url: String) {
+func openInAppMode(url: URL) {
+    let urlStr = url.absoluteString
     let browsers: [(bundle: String, exe: String, args: [String])] = [
-        ("Google Chrome", "Google Chrome", ["--app=\(url)"]),
-        ("Microsoft Edge", "Microsoft Edge", ["--app=\(url)"]),
-        ("Brave Browser", "Brave Browser", ["--app=\(url)"]),
-        ("Firefox", "firefox", ["--new-window", url]),
+        ("Google Chrome", "Google Chrome", ["--app=\(urlStr)"]),
+        ("Microsoft Edge", "Microsoft Edge", ["--app=\(urlStr)"]),
+        ("Brave Browser", "Brave Browser", ["--app=\(urlStr)"]),
+        ("Firefox", "firefox", ["--new-window", urlStr]),
     ]
     for (bundle, exe, args) in browsers {
         let path = "/Applications/\(bundle).app/Contents/MacOS/\(exe)"
@@ -52,7 +48,7 @@ func openInAppMode(url: String) {
         }
     }
     // Fallback: Safari or system default
-    NSWorkspace.shared.open(URL(string: url)!)
+    NSWorkspace.shared.open(url)
 }
 
 // ── Toolbar item identifiers ──────────────────────────────────────────
@@ -265,7 +261,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
 
     @objc private func openInSafari() {
-        let targetURL = webView.url ?? URL(string: urlString)!
+        let targetURL = webView.url ?? URL(string: urlString) ?? URL(string: "https://example.com")!
         NSWorkspace.shared.open(targetURL)
     }
 
