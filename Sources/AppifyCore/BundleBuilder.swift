@@ -24,13 +24,12 @@ public struct BundleBuilder {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
 
+        // Copy the native launcher binary directly — no bash wrapper needed.
+        // CFBundleExecutable points right to this, so Apple Events (Quit,
+        // Dock click) are delivered straight to our NSApplication.
         let binaryDest = macosURL.appendingPathComponent("launcher")
         try fm.copyItem(at: launcherBinary, to: binaryDest)
         try setExecutable(at: binaryDest)
-
-        let wrapperURL = macosURL.appendingPathComponent("run")
-        try wrapperScript().write(to: wrapperURL, atomically: true, encoding: .utf8)
-        try setExecutable(at: wrapperURL)
 
         let plistData = try PropertyListSerialization.data(
             fromPropertyList: buildPlist(hasIcon: iconURL != nil),
@@ -47,25 +46,11 @@ public struct BundleBuilder {
         return appURL
     }
 
-    private func wrapperScript() -> String {
-        let safeName = args.name.replacingOccurrences(of: "\"", with: "\\\"")
-        return """
-        #!/bin/bash
-        DIR="$(cd "$(dirname "$0")" && pwd)"
-        export APPIFY_NAME="\(safeName)"
-        export APPIFY_URL="\(args.url)"
-        export APPIFY_WIDTH="\(args.width)"
-        export APPIFY_HEIGHT="\(args.height)"
-        export APPIFY_MENUBAR="\(args.menuBar ? "1" : "0")"
-        exec "$DIR/launcher"
-        """
-    }
-
     private func buildPlist(hasIcon: Bool) -> [String: Any] {
         var plist: [String: Any] = [
             "CFBundleName": args.name,
             "CFBundleDisplayName": args.name,
-            "CFBundleExecutable": "run",
+            "CFBundleExecutable": "launcher",
             "CFBundleIdentifier": "com.appify.\(sanitizeBundleId(args.name))",
             "CFBundleInfoDictionaryVersion": "6.0",
             "CFBundlePackageType": "APPL",
@@ -75,9 +60,16 @@ public struct BundleBuilder {
             "LSMinimumSystemVersion": "13.0",
             "NSPrincipalClass": "NSApplication",
             "NSAppTransportSecurity": ["NSAllowsArbitraryLoads": true],
+            // Custom keys read by the Launcher at startup
+            "AppifyURL": args.url,
+            "AppifyWidth": args.width,
+            "AppifyHeight": args.height,
         ]
         if hasIcon { plist["CFBundleIconFile"] = "icon" }
-        if args.menuBar { plist["LSUIElement"] = true }
+        if args.menuBar {
+            plist["LSUIElement"] = true
+            plist["AppifyMenuBar"] = true
+        }
         return plist
     }
 

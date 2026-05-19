@@ -1,11 +1,18 @@
 import Cocoa
 import WebKit
 
-let appName   = ProcessInfo.processInfo.environment["APPIFY_NAME"]    ?? "App"
-let urlString = ProcessInfo.processInfo.environment["APPIFY_URL"]     ?? "https://example.com"
-let width     = Int(ProcessInfo.processInfo.environment["APPIFY_WIDTH"]  ?? "1280") ?? 1280
-let height    = Int(ProcessInfo.processInfo.environment["APPIFY_HEIGHT"] ?? "800")  ?? 800
-let isMenuBar = ProcessInfo.processInfo.environment["APPIFY_MENUBAR"] == "1"
+// ── Read config from Info.plist ────────────────────────────────────────
+// No bash wrapper, no env vars — we are the native CFBundleExecutable.
+// Apple Events (Quit, Dock click) are delivered straight to NSApp.
+
+let plist = Bundle.main.infoDictionary ?? [:]
+let appName   = plist["CFBundleName"] as? String ?? "App"
+let urlString = plist["AppifyURL"]   as? String ?? "https://example.com"
+let width     = plist["AppifyWidth"]  as? Int ?? 1280
+let height    = plist["AppifyHeight"] as? Int ?? 800
+let isMenuBar = plist["AppifyMenuBar"] as? Bool ?? false
+
+// ── App Delegate ──────────────────────────────────────────────────────
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var window: NSWindow?
@@ -46,8 +53,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // ── NSWindowDelegate ──────────────────────────────────────────────
 
-    /// Red X → kill process.  NSApp.terminate gets stalled by WKWebView's
-    /// run loop; exit(0) is instant — same logic as Cancel's stopModal().
     func windowWillClose(_ notification: Notification) {
         guard !isMenuBar else { return }
         exit(0)
@@ -63,11 +68,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return true
     }
 
-    /// Cmd+Q / Dock→Quit — kill process immediately.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         webView?.stopLoading()
         exit(0)
-        return .terminateNow  // unreachable, keeps compiler happy
+        return .terminateNow
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
