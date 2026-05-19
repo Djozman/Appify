@@ -7,7 +7,7 @@ let width     = Int(ProcessInfo.processInfo.environment["APPIFY_WIDTH"]  ?? "128
 let height    = Int(ProcessInfo.processInfo.environment["APPIFY_HEIGHT"] ?? "800")  ?? 800
 let isMenuBar = ProcessInfo.processInfo.environment["APPIFY_MENUBAR"] == "1"
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var window: NSWindow?
     var webView: WKWebView!
 
@@ -35,8 +35,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        // Default isReleasedWhenClosed = true: window is deallocated on close,
-        // which lets applicationShouldTerminateAfterLastWindowClosed fire correctly.
+        win.delegate = self
+        // Default isReleasedWhenClosed = true lets the window be deallocated
+        // immediately on close, which avoids stale references.
         win.title = appName
         win.contentView = webView
         win.center()
@@ -45,10 +46,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window = win
     }
 
-    // Quit when the last window is closed (normal app behaviour).
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        return !isMenuBar
+    // ── NSWindowDelegate ──────────────────────────────────────────────
+
+    /// Clicking the red X quits the app directly — no waiting for
+    /// applicationShouldTerminateAfterLastWindowClosed.
+    func windowWillClose(_ notification: Notification) {
+        if !isMenuBar {
+            NSApp.terminate(nil)
+        }
     }
+
+    // ── NSApplicationDelegate ─────────────────────────────────────────
 
     // Dock icon clicked while no window is visible — reopen.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
