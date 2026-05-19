@@ -6,10 +6,10 @@ import WebKit
 // Apple Events (Quit, Dock click) are delivered straight to NSApp.
 
 let plist = Bundle.main.infoDictionary ?? [:]
-let appName   = plist["CFBundleName"] as? String ?? "App"
-let urlString = plist["AppifyURL"]   as? String ?? "https://example.com"
-let width     = plist["AppifyWidth"]  as? Int ?? 1280
-let height    = plist["AppifyHeight"] as? Int ?? 800
+let appName = plist["CFBundleName"] as? String ?? "App"
+let urlString = plist["AppifyURL"] as? String ?? "https://example.com"
+let width = plist["AppifyWidth"] as? Int ?? 1280
+let height = plist["AppifyHeight"] as? Int ?? 800
 let isMenuBar = plist["AppifyMenuBar"] as? Bool ?? false
 
 // ── App Delegate ──────────────────────────────────────────────────────
@@ -60,7 +60,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // ── NSApplicationDelegate ─────────────────────────────────────────
 
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool)
+        -> Bool
+    {
         if !flag {
             openWindow()
             NSApp.activate(ignoringOtherApps: true)
@@ -71,7 +73,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         webView?.stopLoading()
         exit(0)
-        return .terminateNow
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
