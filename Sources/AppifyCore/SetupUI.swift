@@ -28,6 +28,19 @@ public struct SetupResult {
     }
 }
 
+/// NSView that unfocuses the URL field when clicking empty space.
+/// AppKit hit-tests to the deepest view first, so buttons and text
+/// fields still receive their events — only clicks on blank area
+/// reach this view's mouseDown.
+private class ClickResigningView: NSView {
+    var onMouseDown: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event)
+        onMouseDown?()
+    }
+}
+
 /// NSView subclass that clips its contents to a macOS-style continuous squircle
 /// and adds the same gloss/sheen overlay that Finder renders on app icons.
 private class SquircleImageView: NSView {
@@ -132,18 +145,19 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
         win.level = .floating
         self.init(window: win)
         window?.delegate = self
+        // Replace default content view with one that unfocuses on click
+        let cv = ClickResigningView(frame: win.contentView?.frame ?? .zero)
+        cv.autoresizingMask = [.width, .height]
+        cv.onMouseDown = { [weak self] in
+            self?.window?.makeFirstResponder(nil)
+        }
+        win.contentView = cv
         buildUI(url: url, name: name)
     }
 
     private func buildUI(url: String, name: String) {
         guard let content = window?.contentView else { return }
         content.wantsLayer = true
-
-        // Clicking anywhere in the window that isn't another control
-        // unfocuses the URL field so the name auto-completes.
-        let click = NSClickGestureRecognizer(target: self, action: #selector(unfocusURLField))
-        click.delaysPrimaryMouseButtonEvents = false
-        content.addGestureRecognizer(click)
 
         iconContainer.frame = NSRect(x: 24, y: 260, width: 80, height: 80)
         iconContainer.image = defaultIcon()
@@ -328,11 +342,6 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
                 }
             }
         }
-    }
-
-    /// Click on empty space → unfocus URL field → triggers name auto-complete.
-    @objc private func unfocusURLField() {
-        window?.makeFirstResponder(nil)
     }
 
     @objc private func urlChanged() {
