@@ -479,12 +479,19 @@ public class SetupWindowController: NSWindowController, NSWindowDelegate, NSText
 public func runSetupUI(url: String, name: String) -> SetupResult? {
     let app = NSApplication.shared
     app.setActivationPolicy(.regular)
-    class AppDelegate: NSObject, NSApplicationDelegate {
-        func applicationDidFinishLaunching(_ notification: Notification) {}
+
+    // Only set a temporary delegate if none exists yet (e.g. CLI mode).
+    // The GUI AppDelegate already has quit handling set up, so we must
+    // NOT overwrite it or we lose termination delegates.
+    if app.delegate == nil {
+        class TempDelegate: NSObject, NSApplicationDelegate {
+            func applicationDidFinishLaunching(_ notification: Notification) {}
+        }
+        let delegate = TempDelegate()
+        app.delegate = delegate
+        app.finishLaunching()
     }
-    let delegate = AppDelegate()
-    app.delegate = delegate
-    app.finishLaunching()
+
     let wc = SetupWindowController(url: url, name: name)
     wc.showWindow(nil)
     DispatchQueue.main.async {

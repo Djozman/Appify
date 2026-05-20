@@ -29,7 +29,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
             if event.modifierFlags.contains(.command),
                 event.charactersIgnoringModifiers?.lowercased() == "q"
             {
-                self.killChromeWindow(url: urlString)
+                self.killChromeWindow()
                 exit(0)
             }
             return event
@@ -44,6 +44,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
                     task.launchPath = chromePath
                     task.arguments = ["--app=\(urlStr)"]
                     task.launch()
+                    // Capture the Chrome window ID so we only close this one.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        self.chromeWindowID = self.getChromeWindowID(url: urlStr)
+                    }
                 } else {
                     NSWorkspace.shared.open(url)
                 }
@@ -56,9 +60,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    private func killChromeWindow(url: String) {
+    private var chromeWindowID: String?  // track exact Chrome window
+
+    private func getChromeWindowID(url: String) -> String? {
         let src =
-            "tell application \"Google Chrome\" to close (every window whose URL of active tab starts with \"\(url)\")"
+            "tell application \"Google Chrome\" to get id of (first window whose URL of active tab starts with \"\(url)\")"
+        let task = Process()
+        task.launchPath = "/usr/bin/osascript"
+        task.arguments = ["-e", src]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.launch()
+        task.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func killChromeWindow() {
+        guard let id = chromeWindowID else { return }
+        let src = "tell application \"Google Chrome\" to close window id \(id)"
         let task = Process()
         task.launchPath = "/usr/bin/osascript"
         task.arguments = ["-e", src]
@@ -178,7 +198,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
     }
 
     func windowWillClose(_ notification: Notification) {
-        killChromeWindow(url: urlString)
+        killChromeWindow()
         if useBrowser { return }
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoBack))
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoForward))
@@ -200,7 +220,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        killChromeWindow(url: urlString)
+        killChromeWindow()
         webView?.stopLoading()
         exit(0)
     }

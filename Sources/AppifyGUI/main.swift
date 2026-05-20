@@ -1,6 +1,9 @@
 import AppifyCore
 import Cocoa
 
+/// The shared application is an AppifyApplication (see Info.plist
+/// NSPrincipalClass), so terminate: goes through our override that
+/// stops modal sessions first.
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
 
@@ -37,13 +40,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         _ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor
     ) {
         logQuit("AppleEvent-Quit")
-        exit(0)
+        // Go through NSApp.terminate: so our custom AppifyApplication
+        // override stops modal sessions first.
+        NSApp.terminate(nil)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         logQuit("applicationDidFinishLaunching")
 
-        // Cmd+Q key monitor — works even during modal sessions
+        // Cmd+Q key monitor — catches the key event even during modal
+        // sessions (local monitors work in all run loop modes).
+        // We use exit(0) directly here rather than NSApp.terminate:
+        // because terminate: can get queued during modal sessions.
+        // exit(0) terminates the process immediately regardless.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.modifierFlags.contains(.command),
                 event.charactersIgnoringModifiers?.lowercased() == "q"
@@ -54,8 +63,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return event
         }
 
-        // Register a direct Apple Event handler for Quit.  This catches
-        // Dock right-click → Quit before it even reaches NSApplication.
+        // Register a direct Apple Event handler for Quit as a backup.
+        // In most cases NSApplication handles kAEQuitApplication internally,
+        // but this provides a safety net.
         NSAppleEventManager.shared().setEventHandler(
             self,
             andSelector: #selector(handleQuitEvent(_:withReplyEvent:)),
@@ -82,12 +92,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool {
         logQuit("applicationShouldTerminateAfterLastWindowClosed")
-        return true
+        // Return false because the setup window is closed when the user
+        // clicks "Create" — we don't want that to terminate the app.
+        // The app manages its own lifecycle via the "Create Another?"
+        // dialog and explicit Quit actions.
+        return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         logQuit("applicationShouldTerminate")
-        exit(0)
+        return .terminateNow
     }
 
     func run() {

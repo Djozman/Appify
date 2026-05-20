@@ -64,7 +64,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>LSMinimumSystemVersion</key> <string>13.0</string>
-    <key>NSPrincipalClass</key>       <string>NSApplication</string>
+    <key>NSPrincipalClass</key>       <string>AppifyApplication</string>
     <key>CFBundleIconFile</key>       <string>AppIcon</string>
     <key>NSAppTransportSecurity</key>
     <dict><key>NSAllowsArbitraryLoads</key><true/></dict>
