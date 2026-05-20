@@ -31,6 +31,8 @@ NotificationCenter.default.addObserver(
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    private var keyMonitor: Any?
+
     @objc func handleQuitEvent(
         _ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor
     ) {
@@ -40,6 +42,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         logQuit("applicationDidFinishLaunching")
+
+        // Cmd+Q key monitor — works even during modal sessions
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.modifierFlags.contains(.command),
+                event.charactersIgnoringModifiers?.lowercased() == "q"
+            {
+                logQuit("keyMonitor-CmdQ")
+                exit(0)
+            }
+            return event
+        }
 
         // Register a direct Apple Event handler for Quit.  This catches
         // Dock right-click → Quit before it even reaches NSApplication.

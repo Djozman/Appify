@@ -35,15 +35,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
             return event
         }
 
-        // Safety net: fires for ANY termination (Dock Quit, Cmd+Q, etc)
-        NotificationCenter.default.addObserver(
-            forName: NSApplication.willTerminateNotification,
-            object: nil, queue: .main
-        ) { _ in
-            self.killChromeWindow(url: urlString)
-            exit(0)
-        }
-
         if useBrowser {
             if let url = URL(string: urlString) {
                 let urlStr = url.absoluteString
@@ -188,6 +179,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
 
     func windowWillClose(_ notification: Notification) {
         killChromeWindow(url: urlString)
+        if useBrowser { return }
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoBack))
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoForward))
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.isLoading))
