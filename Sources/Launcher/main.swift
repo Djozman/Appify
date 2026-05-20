@@ -1,16 +1,12 @@
 import Cocoa
 import WebKit
 
-// ── Read config from Info.plist ────────────────────────────────────────
-
 let plist = Bundle.main.infoDictionary ?? [:]
 let appName = plist["CFBundleName"] as? String ?? "App"
 let urlString = plist["AppifyURL"] as? String ?? "https://example.com"
 let width = plist["AppifyWidth"] as? Int ?? 1280
 let height = plist["AppifyHeight"] as? Int ?? 800
 let useBrowser = plist["AppifyBrowser"] as? Bool ?? false
-
-// ── Toolbar item identifiers ──────────────────────────────────────────
 
 extension NSToolbarItem.Identifier {
     static let back = NSToolbarItem.Identifier("back")
@@ -19,33 +15,74 @@ extension NSToolbarItem.Identifier {
     static let openInSafari = NSToolbarItem.Identifier("openInSafari")
 }
 
-// ── App Delegate ──────────────────────────────────────────────────────
-
-class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
-    NSToolbarDelegate
-{
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarDelegate {
     var window: NSWindow?
     var webView: WKWebView!
     private var backButton: NSButton?
     private var forwardButton: NSButton?
     private var reloadButton: NSButton?
     private var kvoContext = 0
-    private var keyMonitor: Any?  // keep monitor alive
+    private var chromePID: Int32?
+    private var keyMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Local monitor for Cmd+Q — fires regardless of menu state.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.modifierFlags.contains(.command),
                 event.charactersIgnoringModifiers?.lowercased() == "q"
             {
+                self.killChromeIfNeeded()
                 exit(0)
             }
             return event
         }
 
+        if useBrowser {
+            if let url = URL(string: urlString) {
+                let urlStr = url.absoluteString
+                let chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+                if FileManager.default.fileExists(atPath: chromePath) {
+                    let task = Process()
+                    task.launchPath = chromePath
+                    task.arguments = ["--app=\(urlStr)"]
+                    task.launch()
+                    // Wait a moment for Chrome to spawn, then find its PID
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        self.chromePID = self.findChromePID(url: urlStr)
+                    }
+                } else {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            return
+        }
+
         webView = makeWebView()
         openWindow()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func findChromePID(url: String) -> Int32? {
+        let task = Process()
+        task.launchPath = "/bin/ps"
+        task.arguments = ["-eo", "pid,args"]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.launch()
+        task.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else { return nil }
+        for line in output.components(separatedBy: "\n") {
+            if line.contains("Google Chrome") && line.contains("--app=\(url)") {
+                let parts = line.trimmingCharacters(in: .whitespaces).components(separatedBy: " ")
+                if let pid = Int32(parts[0]) { return pid }
+            }
+        }
+        return nil
+    }
+
+    private func killChromeIfNeeded() {
+        guard let pid = chromePID else { return }
+        kill(pid, SIGTERM)
     }
 
     // ── WKWebView ────────────────────────────────────────────────────
@@ -89,8 +126,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         reloadButton?.toolTip = webView.isLoading ? "Stop" : "Reload"
     }
 
-    // ── Window ────────────────────────────────────────────────────────
-
     private func openWindow() {
         let win = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -112,8 +147,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         window = win
         syncToolbarState()
     }
-
-    // ── NSToolbarDelegate ─────────────────────────────────────────────
 
     func toolbar(
         _ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
@@ -138,20 +171,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         return item
     }
 
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+    func toolbarDefaultItemIdentifiers(_ t: NSToolbar) -> [NSToolbarItem.Identifier] {
         [.back, .forward, .reload, .flexibleSpace, .openInSafari]
     }
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+    func toolbarAllowedItemIdentifiers(_ t: NSToolbar) -> [NSToolbarItem.Identifier] {
         [.back, .forward, .reload, .flexibleSpace, .openInSafari]
     }
 
-    private func toolbarButton(_ symbol: String, _ tip: String, _ action: Selector) -> NSButton {
-        let btn = NSButton(
-            image: NSImage(systemSymbolName: symbol, accessibilityDescription: tip)!,
-            target: self, action: action)
-        btn.bezelStyle = .texturedRounded
-        btn.toolTip = tip
-        return btn
+    private func toolbarButton(_ s: String, _ tip: String, _ a: Selector) -> NSButton {
+        let b = NSButton(
+            image: NSImage(systemSymbolName: s, accessibilityDescription: tip)!, target: self,
+            action: a)
+        b.bezelStyle = .texturedRounded
+        b.toolTip = tip
+        return b
     }
 
     @objc private func goBack() { webView.goBack() }
@@ -164,9 +197,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             webView.url ?? URL(string: urlString) ?? URL(string: "https://example.com")!)
     }
 
-    // ── NSWindowDelegate ──────────────────────────────────────────────
-
     func windowWillClose(_ notification: Notification) {
+        killChromeIfNeeded()
+        if useBrowser { return }
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoBack))
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoForward))
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.isLoading))
@@ -177,7 +210,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool)
         -> Bool
     {
-        if !flag {
+        if useBrowser {
+            if let url = URL(string: urlString) { NSWorkspace.shared.open(url) }
+        } else if !flag {
             openWindow()
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -185,6 +220,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        killChromeIfNeeded()
         webView?.stopLoading()
         exit(0)
     }
@@ -196,7 +232,6 @@ let delegate = AppDelegate()
 NSApplication.shared.delegate = delegate
 NSApp.setActivationPolicy(.regular)
 
-// ── Main menu with Quit so Cmd+Q works ────────────────────────────────
 let mainMenu = NSMenu()
 let appMenu = NSMenu(title: appName)
 appMenu.addItem(
