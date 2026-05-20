@@ -22,7 +22,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
     private var forwardButton: NSButton?
     private var reloadButton: NSButton?
     private var kvoContext = 0
-    private var chromePID: Int32?
     private var keyMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -30,7 +29,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
             if event.modifierFlags.contains(.command),
                 event.charactersIgnoringModifiers?.lowercased() == "q"
             {
-                self.killChromeIfNeeded()
+                self.killChromeWindow(url: urlString)
                 exit(0)
             }
             return event
@@ -45,10 +44,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
                     task.launchPath = chromePath
                     task.arguments = ["--app=\(urlStr)"]
                     task.launch()
-                    // Wait a moment for Chrome to spawn, then find its PID
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        self.chromePID = self.findChromePID(url: urlStr)
-                    }
                 } else {
                     NSWorkspace.shared.open(url)
                 }
@@ -61,28 +56,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    private func findChromePID(url: String) -> Int32? {
+    private func killChromeWindow(url: String) {
+        let src =
+            "tell application \"Google Chrome\" to close (every window whose URL of active tab starts with \"\(url)\")"
         let task = Process()
-        task.launchPath = "/bin/ps"
-        task.arguments = ["-eo", "pid,args"]
-        let pipe = Pipe()
-        task.standardOutput = pipe
+        task.launchPath = "/usr/bin/osascript"
+        task.arguments = ["-e", src]
         task.launch()
-        task.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else { return nil }
-        for line in output.components(separatedBy: "\n") {
-            if line.contains("Google Chrome") && line.contains("--app=\(url)") {
-                let parts = line.trimmingCharacters(in: .whitespaces).components(separatedBy: " ")
-                if let pid = Int32(parts[0]) { return pid }
-            }
-        }
-        return nil
-    }
-
-    private func killChromeIfNeeded() {
-        guard let pid = chromePID else { return }
-        kill(pid, SIGTERM)
     }
 
     // ── WKWebView ────────────────────────────────────────────────────
@@ -198,7 +178,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
     }
 
     func windowWillClose(_ notification: Notification) {
-        killChromeIfNeeded()
+        killChromeWindow(url: urlString)
         if useBrowser { return }
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoBack))
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoForward))
@@ -220,7 +200,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        killChromeIfNeeded()
+        killChromeWindow(url: urlString)
         webView?.stopLoading()
         exit(0)
     }
