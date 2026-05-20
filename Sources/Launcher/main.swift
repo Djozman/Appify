@@ -1,5 +1,4 @@
 import Cocoa
-import Darwin
 import WebKit
 
 // ── Read config from Info.plist ────────────────────────────────────────
@@ -31,7 +30,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     private var forwardButton: NSButton?
     private var reloadButton: NSButton?
     private var kvoContext = 0
-    private var chromePID: Int32?  // so we can kill Chrome when app quits
     private var keyMonitor: Any?  // keep monitor alive
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -45,24 +43,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             return event
         }
 
-        if useBrowser {
-            // Launch Chrome in --app mode (chromeless window). Track its
-            // PID so we can close the window when our app quits.
-            if let url = URL(string: urlString) {
-                let urlStr = url.absoluteString
-                let chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-                if FileManager.default.fileExists(atPath: chromePath) {
-                    let task = Process()
-                    task.launchPath = chromePath
-                    task.arguments = ["--app=\(urlStr)"]
-                    task.launch()
-                    chromePID = task.processIdentifier
-                } else {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-            return
-        }
         webView = makeWebView()
         openWindow()
         NSApp.activate(ignoringOtherApps: true)
@@ -187,8 +167,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     // ── NSWindowDelegate ──────────────────────────────────────────────
 
     func windowWillClose(_ notification: Notification) {
-        if let pid = chromePID { kill(pid, SIGTERM) }
-        if useBrowser { return }
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoBack))
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.canGoForward))
         webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.isLoading))
@@ -199,10 +177,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool)
         -> Bool
     {
-        if useBrowser {
-            // Re-open URL in default browser on Dock click
-            if let url = URL(string: urlString) { NSWorkspace.shared.open(url) }
-        } else if !flag {
+        if !flag {
             openWindow()
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -210,7 +185,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if let pid = chromePID { kill(pid, SIGTERM) }
         webView?.stopLoading()
         exit(0)
     }
