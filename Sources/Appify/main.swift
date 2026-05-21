@@ -30,10 +30,7 @@ func runCLI(args: CLIArgs) throws {
     print("  Output: \(setup.outputDir)")
     print("")
 
-    guard
-        let launcherBinary = Bundle.module.url(
-            forResource: "Resources/Launcher", withExtension: nil)
-    else {
+    guard let launcherBinary = launcherBinaryURL() else {
         throw NSError(
             domain: "Appify", code: 1,
             userInfo: [

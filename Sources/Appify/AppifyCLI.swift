@@ -1,3 +1,4 @@
+import AppifyCore
 import Cocoa
 import Foundation
 
