@@ -5,9 +5,11 @@ struct SetupResult {
     let url: String
     let name: String
     let iconPath: String?
+    let previewPNG: Data?
     let width: Int
     let height: Int
     let outputDir: String
+    let useBrowser: Bool
     var cancelled: Bool = false
 }
 
@@ -236,8 +238,9 @@ class SetupWindowController: NSWindowController {
 
     @objc private func cancel() {
         result = SetupResult(
-            url: "", name: "", iconPath: nil, width: 1280, height: 800,
-            outputDir: "/Applications", cancelled: true)
+            url: "", name: "", iconPath: nil, previewPNG: nil,
+            width: 1280, height: 800,
+            outputDir: "/Applications", useBrowser: false, cancelled: true)
         NSApp.stopModal()
         window?.close()
     }
@@ -254,10 +257,10 @@ class SetupWindowController: NSWindowController {
             return
         }
         result = SetupResult(
-            url: url, name: name, iconPath: customIconPath,
+            url: url, name: name, iconPath: customIconPath, previewPNG: nil,
             width: Int(widthField.stringValue) ?? 1280,
             height: Int(heightField.stringValue) ?? 800,
-            outputDir: "/Applications"
+            outputDir: "/Applications", useBrowser: false
         )
         NSApp.stopModal()
         window?.close()

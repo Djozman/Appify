@@ -8,6 +8,7 @@ struct CLIArgs {
     let iconPath: String?
     let outputDir: String
     let noFavicon: Bool
+    let useBrowser: Bool
 }
 
 enum CLIError: Error, LocalizedError {
@@ -87,7 +88,8 @@ func parseArgs(_ args: [String]) throws -> CLIArgs {
         url: url, name: defaultName,
         width: width, height: height,
         iconPath: iconPath, outputDir: outputDir,
-        noFavicon: noFavicon
+        noFavicon: noFavicon,
+        useBrowser: false
     )
 }
 

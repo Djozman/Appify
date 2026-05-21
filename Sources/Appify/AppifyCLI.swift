@@ -72,7 +72,8 @@ struct AppifyCLI {
             width: setup.width, height: setup.height,
             iconPath: setup.iconPath,
             outputDir: setup.outputDir,
-            noFavicon: setup.iconPath != nil
+            noFavicon: setup.iconPath != nil,
+            useBrowser: setup.useBrowser
         )
         let builder = BundleBuilder(args: finalArgs, launcherBinary: launcherBinary)
         let appURL = try builder.build(iconURL: iconURL)

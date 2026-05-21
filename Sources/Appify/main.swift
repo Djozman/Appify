@@ -70,7 +70,9 @@ func runCLI(args: CLIArgs) throws {
     let finalArgs = CLIArgs(
         url: setup.url, name: setup.name, width: setup.width,
         height: setup.height, iconPath: setup.iconPath,
-        outputDir: setup.outputDir, noFavicon: setup.iconPath != nil)
+        outputDir: setup.outputDir, noFavicon: setup.iconPath != nil,
+        useBrowser: setup.useBrowser
+    )
     let builder = BundleBuilder(args: finalArgs, launcherBinary: launcherBinary)
     let appURL = try builder.build(iconURL: iconURL)
     try? fm.removeItem(at: tempDir)
