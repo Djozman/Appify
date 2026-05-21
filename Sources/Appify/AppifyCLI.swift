@@ -1,7 +1,6 @@
 import Cocoa
 import Foundation
 
-@main
 struct AppifyCLI {
     static func main() {
         do {
@@ -32,10 +31,7 @@ struct AppifyCLI {
         print("  Output: \(setup.outputDir)")
         print("")
 
-        guard
-            let launcherBinary = Bundle.module.url(
-                forResource: "Resources/Launcher", withExtension: nil)
-        else {
+        guard let launcherBinary = launcherBinaryURL() else {
             throw AppifyError.launcherNotFound
         }
 

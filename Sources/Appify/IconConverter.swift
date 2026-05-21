@@ -1,5 +1,5 @@
-import Foundation
 import Cocoa
+import Foundation
 
 struct IconConverter {
 
@@ -11,8 +11,9 @@ struct IconConverter {
         guard let processed = processedImage(for: faviconData) else { return nil }
         let preview = NSImage(size: NSSize(width: size, height: size))
         preview.lockFocus()
-        processed.draw(in: NSRect(x: 0, y: 0, width: size, height: size),
-                       from: .zero, operation: .copy, fraction: 1.0)
+        processed.draw(
+            in: NSRect(x: 0, y: 0, width: size, height: size),
+            from: .zero, operation: .copy, fraction: 1.0)
         preview.unlockFocus()
         return preview
     }
@@ -53,8 +54,10 @@ struct IconConverter {
                 return squarePadded(image, size: size)
             }
             let converted = tmp.appendingPathComponent("icon.png")
-            if run("/usr/bin/sips", ["-s", "format", "png", srcPath.path, "--out", converted.path]),
-               let image = NSImage(contentsOf: converted) {
+            if run(
+                "/usr/bin/sips", ["-s", "format", "png", srcPath.path, "--out", converted.path]),
+                let image = NSImage(contentsOf: converted)
+            {
                 return squarePadded(image, size: size)
             }
             return nil
@@ -65,13 +68,16 @@ struct IconConverter {
             let image: NSImage? = {
                 if let img = NSImage(data: data) { return img }
                 guard let src = CGImageSourceCreateWithData(data as CFData, nil),
-                      let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+                    let cg = CGImageSourceCreateImageAtIndex(src, 0, nil)
+                else { return nil }
                 return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
             }()
             guard let image else { return nil }
             let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
-            let pw = rep.flatMap { $0.pixelsWide > 0 ? $0.pixelsWide : nil } ?? Int(image.size.width)
-            let ph = rep.flatMap { $0.pixelsHigh > 0 ? $0.pixelsHigh : nil } ?? Int(image.size.height)
+            let pw =
+                rep.flatMap { $0.pixelsWide > 0 ? $0.pixelsWide : nil } ?? Int(image.size.width)
+            let ph =
+                rep.flatMap { $0.pixelsHigh > 0 ? $0.pixelsHigh : nil } ?? Int(image.size.height)
             let ratio = Double(pw) / Double(max(ph, 1))
             if ratio > 1.3 {
                 return centerCrop(image, pixelW: pw, pixelH: ph)
@@ -97,22 +103,32 @@ struct IconConverter {
         return buildIcns(from: squaredPath, tempDir: tempDir)
     }
 
+    static func buildIcnsFromPNG(pngPath: URL, tempDir: URL) -> URL? {
+        buildIcns(from: pngPath, tempDir: tempDir)
+    }
+
     // MARK: - Format detection
 
     static func imageExtension(for data: Data) -> String {
         guard data.count >= 4 else { return "png" }
         let b = [UInt8](data.prefix(16))
         if b.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "png" }
-        if b.starts(with: [0xFF, 0xD8])               { return "jpg" }
-        if b.starts(with: [0x47, 0x49, 0x46])         { return "gif" }
+        if b.starts(with: [0xFF, 0xD8]) { return "jpg" }
+        if b.starts(with: [0x47, 0x49, 0x46]) { return "gif" }
         if b.starts(with: [0x49, 0x49]) || b.starts(with: [0x4D, 0x4D]) { return "tiff" }
-        if b.starts(with: [0x42, 0x4D])               { return "bmp" }
-        if b.starts(with: [0x00, 0x00, 0x01, 0x00])   { return "ico" }
-        if b.count >= 12, b[0...3] == [0x52,0x49,0x46,0x46][...],
-           [UInt8](data[8..<12]) == [0x57,0x45,0x42,0x50] { return "webp" }
-        if b.starts(with: [0x69, 0x63, 0x6E, 0x73])   { return "icns" }
+        if b.starts(with: [0x42, 0x4D]) { return "bmp" }
+        if b.starts(with: [0x00, 0x00, 0x01, 0x00]) { return "ico" }
+        if b.count >= 12, b[0...3] == [0x52, 0x49, 0x46, 0x46][...],
+            [UInt8](data[8..<12]) == [0x57, 0x45, 0x42, 0x50]
+        {
+            return "webp"
+        }
+        if b.starts(with: [0x69, 0x63, 0x6E, 0x73]) { return "icns" }
         if let text = String(data: data.prefix(512), encoding: .utf8),
-           text.lowercased().contains("<svg") { return "svg" }
+            text.lowercased().contains("<svg")
+        {
+            return "svg"
+        }
         return "png"
     }
 
@@ -133,8 +149,9 @@ struct IconConverter {
             // Rounded rect background (macOS app icon style)
             bgColor.setFill()
             let radius = s * 0.22
-            let bgPath = NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: s, height: s),
-                                      xRadius: radius, yRadius: radius)
+            let bgPath = NSBezierPath(
+                roundedRect: NSRect(x: 0, y: 0, width: s, height: s),
+                xRadius: radius, yRadius: radius)
             bgPath.fill()
         } else {
             NSColor.clear.setFill()
@@ -143,8 +160,9 @@ struct IconConverter {
 
         let inset = s * padding
         let drawSize = s - inset * 2
-        image.draw(in: NSRect(x: inset, y: inset, width: drawSize, height: drawSize),
-                   from: .zero, operation: .sourceOver, fraction: 1.0)
+        image.draw(
+            in: NSRect(x: inset, y: inset, width: drawSize, height: drawSize),
+            from: .zero, operation: .sourceOver, fraction: 1.0)
         canvas.unlockFocus()
         return canvas
     }
@@ -156,12 +174,10 @@ struct IconConverter {
         // No rect/background fill covering the canvas
         let hasBackground = lower.contains("background") || lower.contains("rect")
         // Has white or near-white fill
-        let hasWhiteFill = lower.contains("fill=\"white\"") ||
-                           lower.contains("fill='white'") ||
-                           lower.contains("fill=\"#fff\"") ||
-                           lower.contains("fill=\"#ffffff\"") ||
-                           lower.contains("fill: white") ||
-                           lower.contains("fill: #fff")
+        let hasWhiteFill =
+            lower.contains("fill=\"white\"") || lower.contains("fill='white'")
+            || lower.contains("fill=\"#fff\"") || lower.contains("fill=\"#ffffff\"")
+            || lower.contains("fill: white") || lower.contains("fill: #fff")
         return hasWhiteFill && !hasBackground
     }
 
@@ -177,7 +193,8 @@ struct IconConverter {
         let canvas = CGFloat(size)
         let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide })
         let w = rep.flatMap { $0.pixelsWide > 0 ? CGFloat($0.pixelsWide) : nil } ?? image.size.width
-        let h = rep.flatMap { $0.pixelsHigh > 0 ? CGFloat($0.pixelsHigh) : nil } ?? image.size.height
+        let h =
+            rep.flatMap { $0.pixelsHigh > 0 ? CGFloat($0.pixelsHigh) : nil } ?? image.size.height
         let srcSize = CGSize(width: max(w, 1), height: max(h, 1))
         let maxContent = canvas * 0.85
         let scale = min(maxContent / srcSize.width, maxContent / srcSize.height)
@@ -189,9 +206,10 @@ struct IconConverter {
         result.lockFocus()
         NSColor.clear.setFill()
         NSRect(x: 0, y: 0, width: canvas, height: canvas).fill()
-        image.draw(in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH),
-                   from: NSRect(origin: .zero, size: srcSize),
-                   operation: .sourceOver, fraction: 1.0)
+        image.draw(
+            in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH),
+            from: NSRect(origin: .zero, size: srcSize),
+            operation: .sourceOver, fraction: 1.0)
         result.unlockFocus()
         return result
     }
@@ -205,9 +223,10 @@ struct IconConverter {
         result.lockFocus()
         NSColor.clear.setFill()
         NSRect(x: 0, y: 0, width: canvas, height: canvas).fill()
-        image.draw(in: NSRect(x: 0, y: 0, width: canvas, height: canvas),
-                   from: NSRect(x: srcX, y: srcY, width: side, height: side),
-                   operation: .sourceOver, fraction: 1.0)
+        image.draw(
+            in: NSRect(x: 0, y: 0, width: canvas, height: canvas),
+            from: NSRect(x: srcX, y: srcY, width: side, height: side),
+            operation: .sourceOver, fraction: 1.0)
         result.unlockFocus()
         return result
     }
@@ -215,7 +234,9 @@ struct IconConverter {
     // MARK: - PNG export
 
     private static func toPNG(_ image: NSImage) -> Data? {
-        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return nil
+        }
         let rep = NSBitmapImageRep(cgImage: cgImage)
         rep.size = image.size
         return rep.representation(using: .png, properties: [:])
@@ -225,16 +246,20 @@ struct IconConverter {
 
     private static func buildIcns(from pngPath: URL, tempDir: URL) -> URL? {
         let iconsetDir = tempDir.appendingPathComponent("icon.iconset")
-        let icnsPath   = tempDir.appendingPathComponent("icon.icns")
-        do { try FileManager.default.createDirectory(at: iconsetDir, withIntermediateDirectories: true) }
-        catch { return nil }
+        let icnsPath = tempDir.appendingPathComponent("icon.icns")
+        do {
+            try FileManager.default.createDirectory(
+                at: iconsetDir, withIntermediateDirectories: true)
+        } catch { return nil }
         for size in [16, 32, 128, 256, 512] {
-            let out   = iconsetDir.appendingPathComponent("icon_\(size)x\(size).png")
+            let out = iconsetDir.appendingPathComponent("icon_\(size)x\(size).png")
             let out2x = iconsetDir.appendingPathComponent("icon_\(size)x\(size)@2x.png")
-            guard sips(pngPath.path, size: size,     out: out.path)   else { return nil }
+            guard sips(pngPath.path, size: size, out: out.path) else { return nil }
             guard sips(pngPath.path, size: size * 2, out: out2x.path) else { return nil }
         }
-        guard run("/usr/bin/iconutil", ["-c", "icns", iconsetDir.path, "-o", icnsPath.path]) else { return nil }
+        guard run("/usr/bin/iconutil", ["-c", "icns", iconsetDir.path, "-o", icnsPath.path]) else {
+            return nil
+        }
         return icnsPath
     }
 
@@ -248,8 +273,11 @@ struct IconConverter {
         proc.executableURL = URL(fileURLWithPath: path)
         proc.arguments = args
         proc.standardOutput = FileHandle.nullDevice
-        proc.standardError  = FileHandle.nullDevice
-        do { try proc.run(); proc.waitUntilExit(); return proc.terminationStatus == 0 }
-        catch { return false }
+        proc.standardError = FileHandle.nullDevice
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+            return proc.terminationStatus == 0
+        } catch { return false }
     }
 }
