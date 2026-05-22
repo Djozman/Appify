@@ -212,12 +212,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
     {
         if useBrowser {
             if let id = chromeWindowID {
-                // Focus existing Chrome window — don't open a new tab
-                let src = "tell application \"Google Chrome\" to set index of window id \(id) to 1"
+                // Activate Chrome and bring the specific window to front.
+                // Using NSRunningApplication is more direct than AppleScript.
+                let chromeApps = NSRunningApplication.runningApplications(
+                    withBundleIdentifier: "com.google.Chrome")
+                if let chrome = chromeApps.first {
+                    chrome.activate(options: .activateIgnoringOtherApps)
+                }
+                // Also tell Chrome via AppleScript to focus the window
                 let task = Process()
                 task.launchPath = "/usr/bin/osascript"
-                task.arguments = ["-e", src]
-                try? task.run()
+                task.arguments = [
+                    "-e", "tell application \"Google Chrome\" to set index of window id \(id) to 1",
+                ]
+                task.launch()
             } else if let url = URL(string: urlString) {
                 NSWorkspace.shared.open(url)
             }
