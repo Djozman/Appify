@@ -40,6 +40,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
             if let url = URL(string: urlString) {
                 launchChrome(url: url)
             }
+            // Don't keep the app alive — exit after launching.
+            // Dock icon disappears, re-opening the app launches a fresh
+            // Chrome --app window. Cleaner than a dead Dock icon.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                exit(0)
+            }
             return
         }
 
