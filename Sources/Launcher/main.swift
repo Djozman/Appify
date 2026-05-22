@@ -22,6 +22,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
     private var forwardButton: NSButton?
     private var reloadButton: NSButton?
     private var kvoContext = 0
+    private var chromeWindowID: String?
     private var keyMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -37,20 +38,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
 
         if useBrowser {
             if let url = URL(string: urlString) {
-                let urlStr = url.absoluteString
-                let chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-                if FileManager.default.fileExists(atPath: chromePath) {
-                    let task = Process()
-                    task.launchPath = chromePath
-                    task.arguments = ["--app=\(urlStr)"]
-                    task.launch()
-                    // Capture the Chrome window ID so we only close this one.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        self.chromeWindowID = self.getChromeWindowID(url: urlStr)
-                    }
-                } else {
-                    NSWorkspace.shared.open(url)
-                }
+                launchChrome(url: url)
             }
             return
         }
@@ -60,7 +48,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    private var chromeWindowID: String?  // track exact Chrome window
+    private func launchChrome(url: URL) {
+        let urlStr = url.absoluteString
+        let chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        if FileManager.default.fileExists(atPath: chromePath) {
+            let task = Process()
+            task.launchPath = chromePath
+            task.arguments = ["--app=\(urlStr)"]
+            task.launch()
+            // Capture the window ID after Chrome spawns
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.chromeWindowID = self.getChromeWindowID(url: urlStr)
+            }
+        } else {
+            NSWorkspace.shared.open(url)
+        }
+    }
 
     private func getChromeWindowID(url: String) -> String? {
         let src =
@@ -211,21 +214,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
         -> Bool
     {
         if useBrowser {
+            // Focus existing Chrome window. If window is gone, re-open.
             if let id = chromeWindowID {
-                // Activate Chrome and bring the specific window to front.
-                // Using NSRunningApplication is more direct than AppleScript.
-                let chromeApps = NSRunningApplication.runningApplications(
-                    withBundleIdentifier: "com.google.Chrome")
-                if let chrome = chromeApps.first {
-                    chrome.activate(options: .activateIgnoringOtherApps)
-                }
-                // Also tell Chrome via AppleScript to focus the window
                 let task = Process()
                 task.launchPath = "/usr/bin/osascript"
                 task.arguments = [
-                    "-e", "tell application \"Google Chrome\" to set index of window id \(id) to 1",
+                    "-e",
+                    "tell application \"Google Chrome\" to set index of window id \(id) to 1",
                 ]
-                task.launch()
+                task.waitUntilExit()
+                // AppleScript failed (window gone) → re-open as new Chrome window
+                if task.terminationStatus != 0 {
+                    if let url = URL(string: urlString) {
+                        launchChrome(url: url)
+                    }
+                }
             } else if let url = URL(string: urlString) {
                 NSWorkspace.shared.open(url)
             }
