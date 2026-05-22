@@ -211,7 +211,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarD
         -> Bool
     {
         if useBrowser {
-            if let url = URL(string: urlString) { NSWorkspace.shared.open(url) }
+            if let id = chromeWindowID {
+                // Focus existing Chrome window — don't open a new tab
+                let src = "tell application \"Google Chrome\" to set index of window id \(id) to 1"
+                let task = Process()
+                task.launchPath = "/usr/bin/osascript"
+                task.arguments = ["-e", src]
+                try? task.run()
+            } else if let url = URL(string: urlString) {
+                NSWorkspace.shared.open(url)
+            }
         } else if !flag {
             openWindow()
         }
